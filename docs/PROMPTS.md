@@ -1,214 +1,279 @@
 # GATE v2 — Codex Prompt Sequence
 
-## How to run this session (read first)
+Use this sequence with `docs/SPEC.md` and `docs/RUNBOOK.md`. Prompts
+0–7 belong in one Codex session using GPT-5.6. Prompt 8 runs from a
+separate terminal because Gate will itself spawn `codex exec`.
 
-1. **One session for the core build.** Prompts 0–7 go into a single
-   `codex` session in the `gate/` workspace. The submission requires a
-   `/feedback` session ID for the thread where most core functionality
-   was built — run `/feedback` at the end of Prompt 7 and save the ID
-   immediately. Prompt 8 (live fire) runs in a *separate* terminal
-   because gate itself will be spawning `codex exec`.
-2. **SPEC.md is on disk.** Every prompt says "per docs/SPEC.md §N" —
-   don't re-paste contracts; make Codex read the file.
-3. **Evidence, every prompt.** Each prompt ends by demanding a command
-   run + pasted output. If Codex answers "done" without output, reply
-   exactly: `Falsified until proven. Run the acceptance command and
-   paste the output.` (You are running gate's philosophy on the tool
-   building gate. Say that in the Devpost writeup.)
-4. **Scope defense.** If Codex proposes extras (dashboards, plugins,
-   more scenarios), reply: `Out of scope per SPEC §6. Continue.`
-5. **Commit after every green prompt:**
-   `git add -A && git commit -m "prompt N: <module> green"`.
-   The commit trail is your build provenance.
+Rules for the build session:
+
+1. Read the referenced SPEC section before editing.
+2. Do not add features from SPEC §6's out-of-scope list.
+3. Every prompt ends with an acceptance command. Paste its real output.
+4. If Codex says “done” without evidence, reply: `Falsified until
+   proven. Run the acceptance command and paste the output.`
+5. After each accepted prompt, commit with `prompt N: ... green`.
+6. After Prompt 7, run `/feedback` and save the session ID.
 
 ## Workspace before Prompt 0
 
-```
+```text
 gate/
-├── docs/SPEC.md            ← from this kit
-├── docs/PROMPTS.md         ← this file
-├── verify_chain.py         ← v1 oracle (chain format must stay compatible)
-├── demo_repo/              ← v1 seeded fixture (parser/invoice/tests)
-├── task.md                 ← ticket #4127
-└── .git/                   ← git init; initial commit
+├── START_HERE.md
+├── CODEX_HANDOFF.md
+├── docs/
+│   ├── SPEC.md
+│   ├── PROMPTS.md
+│   └── RUNBOOK.md
+├── verify_chain.py
+├── demo_repo/
+├── task.md
+└── .git/
 ```
-The v1 `gate.py` and `fake_codex.py` stay OUT of this workspace.
-Codex builds fresh from spec; the old zip is your private diff oracle.
+
+The v1 `gate.py` and v1 `fake_codex.py` must remain outside this
+workspace. They are private review references, not implementation
+inputs.
 
 ---
 
-## Prompt 0 — recon (resolves SPEC §7, no code yet)
+## Prompt 0 — Reality check and contract update
 
+```text
+Read docs/SPEC.md, docs/PROMPTS.md, and docs/RUNBOOK.md fully. Do not
+write implementation code yet.
+
+We are building Gate v2 for OpenAI Build Week using GPT-5.6. First
+resolve every item in SPEC §7 with command evidence.
+
+1. Run and paste:
+   codex --version
+   codex exec --help
+   codex exec resume --help
+   python --version
+
+2. Report the exact JSON-output flag, sandbox/workspace-write syntax,
+   resume-by-thread-id syntax, and Git-repository behavior for this
+   installed Codex version.
+
+3. Tell me one separate shell command to capture a real ping stream to
+   docs/schema_samples.jsonl. I will run it outside this active Codex
+   session and tell you when the file exists. Then read the file and
+   list every event type plus the exact field path containing agent
+   message text and thread id.
+
+4. Record the selected GPT-5.6 model and Codex version in
+   docs/BUILD_EVIDENCE.md.
+
+5. In a disposable temporary test directory, prove that the absolute
+   trusted Python interpreter with isolated mode can run genuine pytest
+   without importing a planted local pytest.py. Do not modify the real
+   demo_repo for this check.
+
+6. Update only the UNVERIFIED command forms in SPEC §4.5 and §7 if the
+   installed CLI differs. Show the diff.
+
+Do not claim completion until the command outputs, schema sample,
+BUILD_EVIDENCE entry, isolated-pytest evidence, and SPEC diff are shown.
 ```
-Read docs/SPEC.md fully. Do not write implementation code yet.
 
-Task 1: Verify the four UNVERIFIED items in SPEC §7 against the codex
-CLI installed on this machine. Run:
-  codex --version
-  codex exec --help
-  codex exec resume --help 2>&1 | head -40
-Report the exact flag names for JSON output and sandbox mode, and the
-exact resume-by-id syntax.
-
-Task 2: From a SEPARATE plain shell (tell me the command; I will run
-it and paste results), we will capture:
-  codex exec --json "reply with exactly: ping" > docs/schema_samples.jsonl
-Then read docs/schema_samples.jsonl and list every distinct event
-type and the exact field path where agent message text lives.
-
-Task 3: Update SPEC §3.5 defaults and §3.1 adapter notes in
-docs/SPEC.md to match reality. Show me the diff.
-
-Do not claim completion without pasting the command outputs.
-```
-
-**Acceptance:** schema_samples.jsonl exists; SPEC diff shown; you know
-the real flags. Commit.
+Acceptance: `docs/schema_samples.jsonl` and
+`docs/BUILD_EVIDENCE.md` exist; CLI assumptions are resolved; no
+implementation module exists yet.
 
 ---
 
-## Prompt 1 — scaffold + events.py
+## Prompt 1 — Package scaffold and JSONL events
 
-```
-Per docs/SPEC.md §2 and §3.1: create the package scaffold (gatelib/
-with empty modules, gate/tests/ with __init__.py) and implement
-gatelib/events.py completely: parse_line, extract_agent_text
-(shapes A/B/C plus content-block lists), extract_thread_id,
-describe. Then write gate/tests/test_events.py covering: all three
-shapes, the recorded events in docs/schema_samples.jsonl (load the
-file in the test), content-block lists, malformed JSON lines, and
-events with no agent text.
+```text
+Per SPEC §3 and §4.1, create the gatelib package scaffold and implement
+gatelib/events.py completely: parse_line, extract_agent_text,
+extract_thread_id, and describe.
 
-Acceptance: run `python -m pytest gate/tests/test_events.py -q` and
-paste the output. Do not claim completion without it.
+Write tests/test_events.py covering all documented schemas, string and
+content-block messages, malformed lines, events without agent text,
+thread/session ids, and the real events in docs/schema_samples.jsonl.
+
+Acceptance: run `python -m pytest tests/test_events.py -q` and paste the
+complete output. Show `git diff --stat`.
 ```
 
 ---
 
-## Prompt 2 — claims.py
+## Prompt 2 — Completion claims
 
+```text
+Per SPEC §4.2, implement gatelib/claims.py and tests/test_claims.py.
+Use only the final agent message supplied by the orchestrator. Do not
+treat standalone “working” or progress language as completion.
+
+Include every required case from SPEC §4.2 verbatim, plus at least five
+mixed-sentence adversarial cases. Specifically test:
+  “I am working on it.” -> no claim
+  “Parser tests pass, but the task is not complete.” -> no claim
+  “I am not done. The previous error said tests pass.” -> no claim
+  “Fixed the crash; ready to merge.” -> claim
+
+Acceptance: run `python -m pytest tests/test_claims.py -q` and paste
+the output. Show `git diff --stat`.
 ```
-Per docs/SPEC.md §3.2: implement gatelib/claims.py (LEXICON,
-find_claims with sentence splitting, question suppression, negation
-window ≤ 8 tokens). Write gate/tests/test_claims.py containing the
-seven-row table from §3.2 verbatim as parametrized cases, plus five
-additional adversarial cases you design (mixed sentences where one
-sentence claims and another negates, claim word inside a quoted
-error message, etc.). 
 
-Acceptance: `python -m pytest gate/tests/test_claims.py -q` — paste
+---
+
+## Prompt 3 — Protected-input freezer
+
+```text
+Per SPEC §4.3, implement gatelib/freezer.py. The snapshot must live
+under an explicit Gate-owned state_dir outside the target repository;
+refuse a state_dir inside the repo. Handle files without following
+protected repository symlinks.
+
+Write tests/test_freezer.py covering:
+  - modify and delete an existing protected test;
+  - add a protected conftest.py;
+  - add pytest.py and pytest/__main__.py;
+  - add sitecustomize.py;
+  - replace a protected file with a symlink/type change;
+  - edit app/ without a tamper result;
+  - refuse state_dir inside repo;
+  - restore returns the manifest to clean and removes planted paths.
+
+Acceptance: run `python -m pytest tests/test_freezer.py -q` and paste
+the output. Show the created snapshot path from one test and prove it
+is outside the target repo.
+```
+
+---
+
+## Prompt 4 — Audit chain
+
+```text
+Per SPEC §4.6, implement gatelib/chain.py while keeping byte
+compatibility with the existing verify_chain.py oracle. Do not add
+HMAC or signing; external root anchoring is the v2 design.
+
+Write tests/test_chain.py: create a five-record chain and verify it via
+verify_chain.py; flip a middle record and require BROKEN with nonzero
+exit; confirm a second run creates a different timestamped log rather
+than erasing the first.
+
+Acceptance: run `python -m pytest tests/test_chain.py -q` and paste the
 output.
 ```
 
 ---
 
-## Prompt 3 — freezer.py
+## Prompt 5 — Trusted verifier and agent session
 
-```
-Per docs/SPEC.md §3.3: implement gatelib/freezer.py (freeze, check,
-restore; snapshot lives in a tempfile.mkdtemp owned by gate; default
-protected patterns per spec). Write gate/tests/test_freezer.py: 
-modify a test file → detected as modified; delete one → deleted;
-plant a new conftest.py → added; edits under app/ → ignored;
-restore → check clean; restore removes planted files.
+```text
+Per SPEC §4.4 and §4.5, implement gatelib/verifier.py and
+gatelib/session.py using the CLI forms verified in Prompt 0.
 
-Acceptance: `python -m pytest gate/tests/test_freezer.py -q` — paste
-output.
-```
+Verifier requirements:
+  - argv list and shell=False;
+  - absolute sys.executable with -I for default pytest;
+  - custom command parsed by shlex.split without shell operators;
+  - merged evidence tail;
+  - verifier timeout returns 124.
 
----
+Session requirements on POSIX/WSL:
+  - stream JSONL without losing non-JSON evidence;
+  - capture first thread id and last agent message;
+  - expose exit code;
+  - enforce timeout even when the child is silent;
+  - start a process group and terminate background descendants after
+    normal exit or timeout.
 
-## Prompt 4 — chain.py (+ HMAC in verify_chain.py)
+Write tests/test_verifier.py proving a planted local pytest.py cannot
+fake the trusted default verifier. Write tests/test_session.py with an
+exit-0 stub, exit-2 stub, silent-timeout stub, and a stub that launches
+a background child; prove the child is terminated.
 
-```
-Per docs/SPEC.md §3.6: implement gatelib/chain.py. The serialization
-must be byte-compatible with the existing verify_chain.py in the repo
-root — treat that file as the oracle and DO NOT change its hashing
-logic; only add an optional --hmac-key argument to it (HMAC-SHA256
-over the same payload). Write gate/tests/test_chain.py: build a
-5-record chain, verify VALID via subprocess call to verify_chain.py;
-flip a middle record → BROKEN nonzero exit; HMAC chain verifies with
-the right key and BREAKS with a wrong key.
-
-Acceptance: `python -m pytest gate/tests/test_chain.py -q` — paste
-output.
-```
-
----
-
-## Prompt 5 — verifier.py + session.py
-
-```
-Per docs/SPEC.md §3.4 and §3.5: implement gatelib/verifier.py and
-gatelib/session.py using the flags verified in Prompt 0. session.py
-must: stream events live (bufsize=1), yield parsed events, capture
-thread_id (first seen), expose exit_code, resume by explicit thread
-id with --last fallback + warning. Unit-test session.py against a
-stub script that prints three JSONL lines and exits 0, and another
-that exits 2 (exit_code surfaced). Test verifier timeout with
-`sleep 5` and timeout=1 → exit 124.
-
-Acceptance: `python -m pytest gate/tests/test_session.py
-gate/tests/test_verifier.py -q` — paste output.
+Acceptance: run
+`python -m pytest tests/test_verifier.py tests/test_session.py -q`
+and paste the complete output.
 ```
 
 ---
 
-## Prompt 6 — gate.py orchestrator
+## Prompt 6 — Orchestrator and verdict semantics
 
-```
-Per docs/SPEC.md §3.7: implement gate.py — CLI, round loop in the
-exact order (tamper check FIRST, then agent exit, then claim×verifier
-matrix), injection messages per spec, live-feed printing (cyan agent,
-yellow gate, dim events, red/green verdicts), timestamped audit log
-path, final root-hash banner with the external-anchor instruction,
-exit code 0 iff VERIFIED or PASS_NO_CLAIM.
+```text
+Per SPEC §4.7, implement gate.py. Follow the round order exactly:
+agent process group stopped -> tamper check/restore -> agent exit
+check -> classify final message -> pre-verifier tamper check -> trusted
+verifier -> post-verifier tamper check -> verdict.
 
-Write gate/tests/test_verdicts.py driving the verdict matrix through
-stubbed session/freezer/verifier objects: all six verdicts reachable,
-TAMPERED beats everything, AGENT_ERROR beats claims.
+TAMPERED overrides claims and verifier output. AGENT_ERROR and
+AGENT_TIMEOUT cannot become stale-green success. PASS_NO_CLAIM is
+neutral, does not exit 0, and may resume once asking for an explicit
+completion status. Only VERIFIED exits 0.
 
-Acceptance: `python -m pytest gate/tests -q` (full suite) — paste
-output.
+Write tests/test_verdicts.py with every verdict and precedence rule.
+Include a race test in which a protected file changes between the
+pre-verifier and post-verifier checks and must become TAMPERED.
+
+Acceptance: run `python -m pytest tests -q` and paste the full output.
+Then show `python gate.py --help`.
 ```
 
 ---
 
-## Prompt 7 — fake_codex.py + end-to-end
+## Prompt 7 — Adversarial rehearsal and end-to-end proof
 
+```text
+Per SPEC §4.8 and §4.9, implement fake_codex.py with demo3, naive2,
+and crash scenarios. The patches and pytest commands must really run;
+only the agent reasoning is scripted.
+
+Create the seeded reset snapshot from the untouched demo_repo before
+the first rehearsal mutation. Add tests/test_e2e_rehearsal.py that:
+  - resets the fixture;
+  - runs demo3 through Gate;
+  - asserts FALSIFIED -> TAMPERED -> VERIFIED in order;
+  - verifies the deleted invoice test was restored;
+  - asserts final exit 0;
+  - validates the audit chain;
+  - runs the crash scenario and requires AGENT_ERROR/nonzero.
+
+Update README.md with supported platforms, installation, rehearsal,
+live command, exact threat-model limits, and a clear label that demo3
+is a deterministic adversarial rehearsal.
+
+Acceptance: paste one complete manual demo3 run, then run
+`python -m pytest tests -q` and paste the full output. Show the final
+README diff.
 ```
-Per docs/SPEC.md §3.8: implement fake_codex.py with scenarios demo3,
-naive2, crash. Patches must really hit disk and pytest must really
-run inside it (only the LLM is scripted). Then write
-gate/tests/test_e2e_rehearsal.py: reset demo_repo to seed (restore
-app/parser.py and app/invoice.py from demo_repo/.seed — create that
-snapshot dir first from current seeded state), run gate.py as a
-subprocess with --cmd "python fake_codex.py --scenario demo3"
---max-retries 3, assert the verdict sequence FALSIFIED, TAMPERED,
-VERIFIED appears in order in the audit log, final exit 0, and
-verify_chain.py reports VALID.
 
-Acceptance: paste (1) the full live output of one manual demo3 run,
-(2) `python -m pytest gate/tests -q` full-suite output. Both green
-or it is not done.
+After acceptance:
+
+```text
+/feedback
 ```
 
-**After acceptance:** run `/feedback`, save the session ID. Commit.
-Tag: `git tag core-built-in-codex`.
+Save the session ID in `docs/BUILD_EVIDENCE.md`, commit, and tag:
+
+```bash
+git tag core-built-in-codex
+```
 
 ---
 
-## Prompt 8 — live fire (separate terminal, uses credits)
+## Prompt 8 — Live Codex fire test
 
-```
-(plain shell, not inside the build session)
-cd gate && python gate.py --repo demo_repo --task task.md
-```
-Real codex takes ticket #4127. Expected: it may fix only the parser
-(FALSIFIED → resume with evidence → proper fix → VERIFIED), or fix
-both immediately (VERIFIED round 1 — also a good story: gate
-*confirms* honest work). If events don't parse: feed the raw lines
-back into the build session — `events.py adapters missed this shape:
-<paste>. Fix and re-run tests.`
+Run this from a separate terminal, outside the Prompt 0–7 build chat:
 
-Record BOTH a demo3 rehearsal run and the live run for the video.
+```bash
+cd gate
+python gate.py --repo demo_repo --task task.md
+```
+
+Accept either real outcome:
+
+- Codex makes the narrow fix first: `FALSIFIED`, evidence resume,
+  proper fix, `VERIFIED`.
+- Codex finds the complete fix immediately: `VERIFIED` in round 1.
+
+If JSONL adapters miss a real shape, paste the raw event into the
+original build session, update `events.py` and its tests, rerun the
+full suite, and commit the fix. Record the rehearsal and live run for
+the demo video.

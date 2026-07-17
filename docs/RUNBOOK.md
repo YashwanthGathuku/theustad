@@ -1,108 +1,219 @@
-# GATE v2 — Runbook (Fri Jul 17 → Tue Jul 21, 2026)
+# GATE v2 — Build and Submission Runbook
 
-## ⚠️ DO FIRST — TODAY, FRIDAY JULY 17
+Schedule: Friday July 17 through Tuesday July 21, 2026.
 
-- [ ] **Codex credits request form — closes 12:00 PM PT TODAY.**
-      Miss it and Prompt 8 runs on your own plan/key instead. Build
-      Week codes expire Jul 21, 5 PM PT.
-- [ ] Devpost registration confirmed, category **Developer Tools**.
+This runbook is operational. `docs/SPEC.md` is the product contract,
+and `docs/PROMPTS.md` is the implementation sequence. If prose in this
+runbook conflicts with the spec, the spec wins.
 
-## Environment (30 minutes)
+## 0. Do these before coding
+
+- Submit the Codex credits request form before **12:00 PM PT on Friday,
+  July 17**. This is the only nonrecoverable task in the plan.
+- Confirm Devpost registration and select **Developer Tools**.
+- Use GPT-5.6 for the Codex build session and preserve evidence of the
+  selected model and session.
+- On Windows, use WSL 2. Native Windows is not supported by this build.
+
+If the credits form is already closed, continue with the same build on
+the available ChatGPT plan or API credits. Do not change product scope.
+
+## 1. Know what is in this starter
+
+The starter intentionally contains only:
+
+```text
+gate-v2-codex-starter/
+├── START_HERE.md
+├── CODEX_HANDOFF.md
+├── docs/
+│   ├── SPEC.md
+│   ├── PROMPTS.md
+│   └── RUNBOOK.md
+├── demo_repo/
+├── task.md
+└── verify_chain.py
+```
+
+The old `gate.py`, old `fake_codex.py`, and temporary red-team attack
+scripts are intentionally excluded. They are evidence and private diff
+references, not inputs to the compliant Codex implementation.
+
+## 2. Prepare the workspace
+
+From a Linux, macOS, or WSL 2 shell:
 
 ```bash
-npm i -g @openai/codex          # or brew install --cask codex
-codex login                     # ChatGPT plan or API key
-python3 --version               # ≥ 3.10
-pip install pytest
-mkdir gate && cd gate
-# from the v1 zip, copy IN: demo_repo/  task.md  verify_chain.py
-# from this kit, copy IN:   docs/SPEC.md  docs/PROMPTS.md
-git init && git add -A && git commit -m "workspace: spec + fixture + oracle"
-cd demo_repo && git init && git add -A && git commit -m "seed" && cd ..
+cd gate-v2-codex-starter
+python3 --version
+git --version
+codex --version
 ```
-v1 `gate.py`/`fake_codex.py` stay OUTSIDE this folder (private diff
-oracle only).
 
-## Day plan
+If Codex is not installed, install and authenticate it using one of the
+supported methods for the machine, for example:
 
-| Day | Work | Exit condition (evidence, not feelings) |
+```bash
+npm install -g @openai/codex
+codex login
+```
+
+Create a local Python environment and install the development dependency:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip pytest
+```
+
+Initialize the build repository first, then give the guinea-pig repo its
+own baseline history:
+
+```bash
+git init
+git add -A
+git commit -m "workspace: v2 spec, prompts, runbook, and fixture"
+cd demo_repo
+git init
+git add -A
+git commit -m "seed: broken duration fixture"
+cd ..
+```
+
+Confirm the fixture starts broken. The expected result is **1 failed,
+10 passed**:
+
+```bash
+python -m pytest demo_repo/tests -q
+```
+
+That command intentionally exits nonzero. Do not repair the fixture
+manually; Gate's rehearsal agents need it.
+
+## 3. Start the compliant Codex build
+
+1. Open this folder in Codex on desktop or start Codex from this folder.
+2. Select GPT-5.6. For a CLI supporting the standard model flag, use:
+
+   ```bash
+   codex -m gpt-5.6
+   ```
+
+3. Paste the contents of `CODEX_HANDOFF.md` as the first message.
+4. Let Codex execute **Prompt 0 only**, then inspect its command evidence.
+5. Run the separate schema-capture command Prompt 0 gives you in another
+   terminal. Return to the same session when the sample exists.
+6. Do not start Prompt 1 until all Prompt 0 acceptance conditions pass.
+
+This file-and-prompt handoff is the chat transfer. Do not paste the full
+planning conversation; it contains stale alternatives and would weaken
+the single source of truth.
+
+## 4. Execute Prompts 1–7 in one session
+
+Use `docs/PROMPTS.md` in order. For every prompt:
+
+1. Paste only that prompt.
+2. Require the complete acceptance-command output.
+3. Inspect the diff and unexpected files.
+4. If the acceptance test is green, commit it:
+
+   ```bash
+   git add -A
+   git commit -m "prompt N: acceptance green"
+   ```
+
+5. If Codex reports success without evidence, answer:
+
+   ```text
+   Falsified until proven. Run the stated acceptance command and paste
+   the complete output.
+   ```
+
+Keep Prompts 0–7 in the same session so the required `/feedback` record
+covers the core build. Prompt 8 is deliberately launched from a second
+terminal because Gate itself starts `codex exec`.
+
+## 5. Day-by-day exit conditions
+
+| Day | Work | Do not stop until |
 |---|---|---|
-| **Fri 17** | Credits form. Setup. Prompts 0–2 | schema_samples.jsonl exists; events+claims tests green (pasted) |
-| **Sat 18** | Prompts 3–6 | full `pytest gate/tests -q` green |
-| **Sun 19** | Prompt 7 e2e; then Prompt 8 live fire | demo3 verdict sequence FALSIFIED→TAMPERED→VERIFIED in audit log; one live codex run completed; `/feedback` ID saved |
-| **Mon 20** | Record video; README; Devpost draft; anchor root hash | video file exists; repo public; draft complete |
-| **Tue 21** | Buffer + submit by **12:00 PM PT** (deadline 5 PM PT) | Devpost shows "submitted" |
+| Fri Jul 17 | Form, setup, Prompts 0–2 | schema sample and build evidence exist; event and claim tests pass |
+| Sat Jul 18 | Prompts 3–6 | the complete Gate unit suite passes |
+| Sun Jul 19 | Prompt 7 and Prompt 8 | rehearsal records `FALSIFIED → TAMPERED → VERIFIED`; one live Codex run finishes |
+| Mon Jul 20 | README, video, public repo, Devpost draft | video plays; repo instructions work from clean setup; audit root is externally anchored |
+| Tue Jul 21 | Buffer and submission | Devpost shows submitted before the deadline |
 
-Falling behind? Cut in this order: HMAC option → `crash` scenario →
-extra adversarial claim cases. **Never cut:** freezer, demo3 e2e,
-the video.
+If behind, cut in this order: optional crash rehearsal, extra claim
+phrases, presentation polish. Never cut the protected-input freezer,
+module-shadowing defense, three-beat adversarial rehearsal, live Codex
+run, `/feedback` session ID, or video.
 
-## The demo video (~2 minutes, one take, rehearsed)
+## 6. Required evidence folder
 
-Terminal font large. Script:
+Keep these artifacts before recording:
 
-1. **Setup (10s):** "Coding agents claim 'done.' Gate checks whether
-   that's true — in a process the agent doesn't control." Show
-   `task.md` (ticket #4127).
-2. **Beat 1 — false claim (30s):** run gate (rehearsal, demo3).
-   Agent fixes parser, claims "ready to merge." Gate runs the FULL
-   suite itself → `2 failed` → **FALSIFIED**, evidence injected back.
-3. **Beat 2 — cheating (30s):** agent deletes the failing test file,
-   claims "all tests pass" — and the tests genuinely are green now.
-   Gate's frozen manifest catches it → **TAMPERED**, file restored,
-   diff logged. "It can't grade its own homework — and can't eat it
-   either."
-4. **Beat 3 — honest (25s):** proper fix → **VERIFIED**. Root hash
-   banner. `python verify_chain.py audit_*.jsonl` → VALID. Flip one
-   verdict in a copy → `BROKEN at seq N`.
-5. **Live coda (15s):** cut to the real `codex exec` run from
-   Prompt 8, landing on its verdict. "Same gate, real agent."
-6. **Close (10s):** "Claim lexicon compiled from my open-source
-   evidence-gate skill. Built through Codex — session ID in the
-   submission."
+- `docs/schema_samples.jsonl` from the installed Codex CLI.
+- `docs/BUILD_EVIDENCE.md` with Codex version and GPT-5.6 selection.
+- Complete Gate test output.
+- A rehearsal audit containing `FALSIFIED`, `TAMPERED`, and `VERIFIED`.
+- One live `codex exec` audit.
+- The `/feedback` session ID from the Prompt 0–7 build session.
+- Final audit root hash in both a pushed Git commit message and Devpost
+  text. That external anchor is what makes later log rewriting visible.
 
-## Devpost submission checklist
+Do not publish secrets, API keys, raw environment dumps, or private
+paths in these artifacts.
 
-- [ ] Name: decide in ≤5 min, functional beats clever ("Gate" +
-      one word if taken). No brainstorm session.
-- [ ] Category: Developer Tools.
-- [ ] `/feedback` session ID from the Prompt 0–7 build session.
-- [ ] Public repo; README has install + test instructions
-      (`pip install pytest`, `pytest gate/tests -q`, rehearsal
-      command, live command) — required for dev-tools entries.
-- [ ] Honesty block in README: verified-in-repo vs assumed
-      (post-Prompt-0 this list should be nearly empty).
-- [ ] Audit root hash pasted into submission text AND in a git
-      commit message (external anchor).
-- [ ] Video uploaded; plays without sound making sense too
-      (captions on beats).
-- [ ] Provenance line: "Core built in Codex from a written spec
-      (docs/SPEC.md); seeded fixture and chain-format oracle
-      provided as inputs; v1 prototype used only as a private
-      diff reference."
+## 7. Two-minute demo
 
-## Judging map (write these sentences, roughly, in the submission)
+Use a large terminal font and captions. Rehearse with the deterministic
+fake agent; label it plainly as an adversarial rehearsal.
 
-- **Codex/GPT-5.6 use:** built *through* Codex (session ID) and built
-  *for* Codex — gate wraps `codex exec` and resumes sessions by
-  thread id with falsification evidence.
-- **Implementation:** six modules, own pytest suite incl. e2e; audit
-  chain byte-verified by an independent script.
-- **Impact:** false completion claims and test-tampering are the two
-  failure modes every agent user hits; gate converts both into
-  logged, falsifiable verdicts.
-- **Novelty:** not "run tests after the agent" — the verifier's
-  inputs are themselves defended (frozen manifest), and evidence
-  re-enters the same session. Anti-reward-hacking as a harness, not
-  a paper.
+1. **Setup — 10 seconds.** “Coding agents claim done. Gate checks the
+   claim using protected evidence.” Show `task.md`.
+2. **False claim — 30 seconds.** The agent makes the obvious parser fix
+   and claims completion. Gate runs the full suite and records
+   `FALSIFIED`, then returns the failing invoice evidence to the session.
+3. **Test deletion — 30 seconds.** The agent deletes the failing test
+   and gets green tests. Gate detects the protected-input change,
+   records `TAMPERED`, restores the baseline, and returns the diff.
+   “It cannot grade its own homework—or eat it.”
+4. **Honest fix — 25 seconds.** The agent repairs the compatibility
+   behavior; Gate records `VERIFIED`.
+5. **Audit — 15 seconds.** Verify the chain, show the anchored root, then
+   verify a deliberately edited copy and show the break. Never edit the
+   original evidence log.
+6. **Live coda — 15 seconds.** Show the real Codex run from Prompt 8.
+7. **Close — 10 seconds.** State that the core was built through Codex
+   from the written spec and identify the build session evidence.
 
-## Risk table
+## 8. Devpost checklist
 
-| Risk | Mitigation |
-|---|---|
-| JSONL schema differs from adapters | Prompt 0 captures real samples first; adapters tested against them |
-| Sandbox blocks agent writes | flag verified in Prompt 0; demo_repo is its own git repo |
-| Credits denied/late | rehearsal mode needs zero credits; Prompt 8 can run on your own plan |
-| Live codex fixes everything round 1 | that's a VERIFIED story — say "gate confirms honest work"; rehearsal carries the falsification beats |
-| Time overrun | cut order above; scope wall is SPEC §6 |
-| New idea arrives mid-build | it goes in `docs/PARKING.md`, not in the repo. That is the whole discipline. |
+- [ ] Credits form submitted, or the fallback funding path recorded.
+- [ ] Devpost project registered under Developer Tools.
+- [ ] Public repository contains install, test, rehearsal, and live-run
+      instructions that were retested from a clean environment.
+- [ ] GPT-5.6/Codex build provenance and `/feedback` session ID included.
+- [ ] Honesty block distinguishes verified behavior, assumptions, and
+      out-of-scope threats.
+- [ ] Audit root hash appears in a pushed commit and submission text.
+- [ ] Video has captions and makes sense without audio.
+- [ ] Submission uses no fabricated scores or unsupported comparison
+      claims.
+- [ ] Project is actually submitted, not merely saved as a draft.
+
+Suggested provenance sentence:
+
+> Core built in Codex from `docs/SPEC.md`; the seeded fixture and
+> independent chain-format checker were supplied as inputs. The v1
+> prototype and red-team scripts were used only as private review
+> references and were not placed in the build workspace.
+
+## 9. Scope discipline
+
+Until Gate is submitted, new product ideas go in a parking note rather
+than implementation. In particular, DeployGraph/Salesforce validation
+is a future verifier pack for Gate, not part of this build. The unlock
+condition is a completed Gate submission.
+
