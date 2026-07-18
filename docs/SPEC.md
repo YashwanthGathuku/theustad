@@ -208,7 +208,7 @@ usercustomize.py
 
 ```text
 codex exec --json --sandbox workspace-write <task>
-codex exec resume <thread_id> --json <message>
+codex exec resume --json <thread_id> <message>
 ```
 
 - On POSIX/WSL, spawn the agent in a new process group/session.
