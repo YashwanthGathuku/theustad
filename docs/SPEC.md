@@ -188,8 +188,12 @@ usercustomize.py
 - Default argv uses the absolute `sys.executable`:
 
 ```text
-[sys.executable, "-I", "-m", "pytest", "-q"]
+[sys.executable, "-I", "-B", "-m", "pytest", "-q"]
 ```
+
+`-B` prevents the trusted verifier itself from creating bytecode under the
+protected `tests/**` tree. Isolated mode ignores `PYTHONDONTWRITEBYTECODE`, so
+an environment-only setting is not sufficient.
 
 - Use `shell=False`.
 - A custom `--verifier` string is parsed with `shlex.split`; shell
@@ -358,7 +362,7 @@ Out of scope until after submission:
 | Sandbox flag | Capture `codex exec --help` output |
 | Git requirement | Run/inspect behavior in a non-Git directory |
 | GPT-5.6 build model | Record model selection/version in build notes |
-| Isolated pytest command | Prove trusted `sys.executable -I -m pytest -q` runs the genuine fixture tests despite a planted local `pytest.py` in a temporary test repo |
+| Isolated pytest command | Prove trusted `sys.executable -I -B -m pytest -q` runs the genuine fixture tests despite a planted local `pytest.py` in a temporary test repo and does not create bytecode under protected `tests/**` |
 
 No code is complete until these assumptions and the acceptance tests
 are evidenced in the repository.

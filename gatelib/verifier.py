@@ -28,7 +28,7 @@ class VerificationResult:
 
 def default_argv() -> list[str]:
     """Return the trusted isolated-pytest command."""
-    return [os.path.abspath(sys.executable), "-I", "-m", "pytest", "-q"]
+    return [os.path.abspath(sys.executable), "-I", "-B", "-m", "pytest", "-q"]
 
 
 def parse_command(command: str) -> list[str]:

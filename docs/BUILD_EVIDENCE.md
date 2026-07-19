@@ -345,3 +345,21 @@ Observed schema inventory:
 
 Unique event types: `thread.started`, `turn.started`, `item.completed`, and
 `turn.completed`.
+
+## Prompt 7 adversarial rehearsal
+
+- Build session ID: `019f708d-eb32-72d0-a58d-fdd5ffcff511`
+- Feedback completed in Codex Desktop.
+- Feedback/session ID: `019f708d-eb32-72d0-a58d-fdd5ffcff511`.
+- Seeded demo repository commit: `5e87582` (`seed: broken duration fixture`).
+- Manual `demo3` verdicts: `FALSIFIED -> TAMPERED -> VERIFIED`.
+- Manual audit root:
+  `550bf5d0f2cebcdcc59996d64eccb0afbb41ff08791af1ed57fe319917f93fc9`.
+- Independent chain verification: `VALID: 12 records` with the same root.
+
+The end-to-end rehearsal found that isolated Python ignores the
+`PYTHONDONTWRITEBYTECODE` environment variable. The original default verifier
+therefore created `tests/__pycache__`, and Gate correctly classified that
+protected-path mutation as `TAMPERED`. The trusted verifier command now uses
+`-I -B -m pytest -q`: isolation still defeats local module shadowing, while
+`-B` prevents the verifier itself from mutating protected test inputs.

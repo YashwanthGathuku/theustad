@@ -34,10 +34,25 @@ def test_default_argv_uses_absolute_isolated_python_and_defeats_pytest_shadowing
 
     assert Path(argv[0]).is_absolute()
     assert Path(argv[0]).resolve() == Path(sys.executable).resolve()
-    assert argv[1:] == ["-I", "-m", "pytest", "-q"]
+    assert argv[1:] == ["-I", "-B", "-m", "pytest", "-q"]
     assert result.exit_code != 0
     assert "1 failed" in result.output
     assert "PLANTED PYTEST EXECUTED" not in result.output
+
+
+def test_default_verifier_does_not_create_protected_bytecode(tmp_path):
+    verifier = _verifier()
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_real.py").write_text(
+        "def test_real():\n    assert True\n",
+        encoding="utf-8",
+    )
+
+    result = verifier.run(verifier.default_argv(), tmp_path, timeout=30)
+
+    assert result.exit_code == 0
+    assert not (tests_dir / "__pycache__").exists()
 
 
 def test_run_passes_an_argv_list_with_shell_false(tmp_path, monkeypatch):
