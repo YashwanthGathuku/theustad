@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from gatelib.chain import AuditChain
 from gatelib.claims import Claim, find_claims
@@ -68,6 +68,13 @@ class GateResult:
 ClaimFinder = Callable[[str], list[Claim]]
 VerifierRunner = Callable[[Sequence[str], Path, float], VerificationResult]
 Output = Callable[[str], None]
+
+
+def _console_output(line: str, *, stream: TextIO | None = None) -> None:
+    target = sys.stdout if stream is None else stream
+    encoding = getattr(target, "encoding", None) or "utf-8"
+    safe_line = line.encode(encoding, errors="backslashreplace").decode(encoding)
+    print(safe_line, file=target)
 
 
 def verdict_for(claims: Sequence[Claim], verifier_exit_code: int) -> Verdict:
@@ -148,7 +155,7 @@ class GateRunner:
         timeout: float,
         verifier_runner: VerifierRunner = run_verifier,
         claim_finder: ClaimFinder = find_claims,
-        output: Output = print,
+        output: Output = _console_output,
     ):
         if max_retries < 0:
             raise ValueError("max_retries cannot be negative")
@@ -482,7 +489,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return runner.run().exit_code
     except (OSError, ValueError, RuntimeError) as error:
-        print(f"GATE_ERROR {error}", file=sys.stderr)
+        _console_output(f"GATE_ERROR {error}", stream=sys.stderr)
         return 2
 
 
