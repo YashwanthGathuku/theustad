@@ -1,0 +1,13 @@
+Gate Codex plugin validation
+Date: 2026-07-20
+
+Command:
+python <codex-plugin-creator>/scripts/validate_plugin.py .
+
+Exit code: 0
+
+Output:
+Plugin validation passed: <gate-plugin-checkout>
+
+The local checkout path is sanitized. The command used the plugin-creator
+validator bundled with Codex.

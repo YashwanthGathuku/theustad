@@ -23,4 +23,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install pytest
+      - run: python -m json.tool .codex-plugin/plugin.json > /dev/null
+      - run: python scripts/build_plugin_assets.py
+      - run: git diff --exit-code -- assets
       - run: python -m pytest tests -q

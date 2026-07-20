@@ -1,0 +1,54 @@
+Gate Codex plugin personal installation
+Date: 2026-07-20
+
+Command:
+python scripts/install_plugin.py
+
+Exit code: 0
+
+Codex registration:
+pluginId: gate@personal
+name: gate
+marketplaceName: personal
+version: 0.1.0
+installed: true
+enabled: true
+source: local
+source path: ~/plugins/gate
+authPolicy: ON_INSTALL
+
+Installed source and Codex cache file set:
+gate.py
+LICENSE
+README.md
+verify_chain.py
+.codex-plugin/plugin.json
+assets/icon.png
+assets/logo.png
+gatelib/chain.py
+gatelib/claims.py
+gatelib/events.py
+gatelib/freezer.py
+gatelib/session.py
+gatelib/verifier.py
+gatelib/__init__.py
+scripts/build_plugin_assets.py
+scripts/gate_plugin.py
+scripts/install_plugin.py
+scripts/__init__.py
+skills/audit/SKILL.md
+skills/doctor/SKILL.md
+skills/run/SKILL.md
+
+Installed audit command:
+python ~/plugins/gate/scripts/gate_plugin.py audit docs/evidence/audit_20260720_165329.jsonl
+
+Installed audit output:
+VALID: 12 records, root 200042504cd90869d2bc8edcd60278049e231ead88ae69a60919a64a335d4a20
+AUDIT_EXIT 0
+
+Installed native Windows doctor output:
+GATE_PLUGIN_ERROR Gate requires Linux, macOS, or WSL 2; native Windows process-tree termination is unsupported.
+DOCTOR_EXIT 2
+
+User-specific absolute paths are normalized to `~`.

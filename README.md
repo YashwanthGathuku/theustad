@@ -31,6 +31,58 @@ python -m pip install --upgrade pip pytest
 python -m pytest tests -q
 ```
 
+## Codex plugin
+
+The Gate plugin packages the runtime outside the repository being modified and
+adds three Codex skills: `$gate:doctor`, `$gate:run`, and `$gate:audit`. A Gate
+run starts a separate Gate-controlled child Codex session; it does not claim to
+retroactively protect the conversation that launched it.
+
+Install the local package from a Linux, macOS, or WSL 2 checkout:
+
+```bash
+git clone https://github.com/YashwanthGathuku/gate.git
+cd gate
+python3 scripts/install_plugin.py
+codex plugin list --marketplace personal
+```
+
+The installer copies an allowlisted runtime to `~/plugins/gate`, preserves
+unrelated entries in `~/.agents/plugins/marketplace.json`, and runs
+`codex plugin add gate@personal --json`. Restart Codex if the installed skills
+do not appear immediately.
+
+From any supported Git repository, invoke the skills in Codex:
+
+```text
+$gate:doctor Check whether this repository is ready for Gate.
+$gate:run Implement the requested task and report the exact Gate verdict.
+$gate:audit Verify /absolute/path/to/audit_YYYYmmdd_HHMMSS.jsonl.
+```
+
+`$gate:run` does not edit the repository from the parent conversation. It
+launches the bundled runtime, which freezes protected inputs before starting a
+separate child, resumes that exact child thread with verifier evidence, and
+returns Gate's terminal verdict and audit root without reinterpretation. Only
+child exit code 0 plus `FINAL VERIFIED` is successful completion.
+
+Native Windows installation is allowed so users can inspect the package, but
+`$gate:doctor` and `$gate:run` fail closed there. Use WSL 2 because Gate v2's
+contract requires POSIX process-group termination. `$gate:audit` can validate
+an existing chain on native Windows because it does not start an agent.
+
+Remove the local installation with:
+
+```bash
+codex plugin remove gate@personal --json
+```
+
+For judging, install the plugin, run `$gate:doctor`, start one real task through
+`$gate:run`, and validate the emitted log with `$gate:audit`. The deterministic
+adversarial rehearsal below remains the repeatable proof of
+`FALSIFIED -> TAMPERED -> VERIFIED`; the plugin workflow demonstrates that the
+same Gate core is installable and usable from an active developer project.
+
 For a clean checkout, give the target fixture its own Git history before a
 live Codex run:
 

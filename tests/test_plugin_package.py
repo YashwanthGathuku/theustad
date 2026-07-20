@@ -228,3 +228,44 @@ def test_installer_invokes_codex_plugin_add_with_argv(tmp_path):
         (home / ".agents" / "plugins" / "marketplace.json").read_text()
     )
     assert marketplace["plugins"][0]["name"] == "gate"
+
+
+def test_readme_documents_complete_plugin_workflow_and_platform_boundary():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    for required in (
+        "## Codex plugin",
+        "python3 scripts/install_plugin.py",
+        "$gate:doctor",
+        "$gate:run",
+        "$gate:audit",
+        "codex plugin remove gate@personal --json",
+        "Linux, macOS, or WSL 2",
+        "Native Windows",
+        "separate Gate-controlled child",
+    ):
+        assert required in readme
+
+
+def test_plugin_evidence_records_validation_installation_and_fresh_skill_run():
+    evidence = ROOT / "docs" / "evidence"
+
+    validation = (evidence / "plugin_validation.txt").read_text(encoding="utf-8")
+    installation = (evidence / "plugin_install.txt").read_text(encoding="utf-8")
+    skill_audit = (evidence / "plugin_skill_audit.txt").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Exit code: 0" in validation
+    assert "Plugin validation passed" in validation
+    assert "installed: true" in installation
+    assert "enabled: true" in installation
+    assert "DOCTOR_EXIT 2" in installation
+    assert "Thread: 019f80bd-68ce-7452-b995-a3f708981852" in skill_audit
+    assert "Validator exit code: 0" in skill_audit
+
+    expected_root = (
+        "200042504cd90869d2bc8edcd60278049e231ead88ae69a60919a64a335d4a20"
+    )
+    assert expected_root in installation
+    assert expected_root in skill_audit

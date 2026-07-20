@@ -38,3 +38,21 @@ python verify_chain.py docs/evidence/live_audit_20260719_051748.jsonl
 skips are the POSIX process-group and symlink cases; native Windows is not a
 supported Gate runtime. The GitHub Actions matrix runs the complete suite on
 Linux with Python 3.10 and 3.13.
+
+## Codex plugin
+
+- Package validator: `plugin_validation.txt`
+- Plugin-era full test transcript: `plugin_test_results.txt`
+- Personal marketplace installation and installed-runtime checks:
+  `plugin_install.txt`
+- Fresh Codex `$gate:audit` invocation: `plugin_skill_audit.txt`
+- Fresh Codex thread: `019f80bd-68ce-7452-b995-a3f708981852`
+- Installed audit exit code: `0`
+- Installed audit root:
+  `200042504cd90869d2bc8edcd60278049e231ead88ae69a60919a64a335d4a20`
+
+The plugin package is installed and discoverable on this workstation. Its
+read-only audit skill was exercised through a fresh Codex task. A live
+`$gate:run` is intentionally not claimed here: the workstation has no WSL
+distribution, and Gate fails closed on unsupported native Windows process
+termination semantics.

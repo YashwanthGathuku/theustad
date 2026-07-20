@@ -1,0 +1,20 @@
+Gate Codex plugin test run
+Date: 2026-07-20
+
+Commands:
+python -m pytest tests/test_plugin_package.py -q
+python scripts/build_plugin_assets.py
+git diff --exit-code -- assets
+python -m json.tool .codex-plugin/plugin.json
+python -m pytest tests -q
+
+Exit code: 0
+
+Output:
+17 passed in 1.12s
+148 passed, 3 skipped in 32.77s
+
+The three native Windows skips cover POSIX-only process-group and symlink
+behavior. GitHub Actions runs the full suite on Linux with Python 3.10 and
+3.13. The run also emitted the pre-existing requests dependency mismatch and
+pytest-asyncio loop-scope deprecation warnings.

@@ -1,0 +1,22 @@
+Gate Codex plugin skill discovery and audit
+Date: 2026-07-20
+Codex CLI: 0.145.0-alpha.18
+Thread: 019f80bd-68ce-7452-b995-a3f708981852
+
+Command:
+codex exec --json --sandbox danger-full-access "Use $gate:audit to verify docs/evidence/audit_20260720_165329.jsonl. Do not edit files. Report the exact validator output and exit code."
+
+CLI exit code: 0
+
+Relevant task output:
+Using the explicitly requested `gate:audit` skill.
+Plugin root: ~/.codex/plugins/cache/personal/gate/0.1.0
+Python: 3.13.5
+VALID: 12 records, root 200042504cd90869d2bc8edcd60278049e231ead88ae69a60919a64a335d4a20
+Validator exit code: 0
+No files were edited.
+
+The `danger-full-access` sandbox selection was limited to this read-only audit
+discovery test because the Windows read-only sandbox cannot execute the Python
+interpreter installed outside the workspace. It was not used for a Gate run.
+The plugin itself does not configure or bypass Codex sandbox policy.
