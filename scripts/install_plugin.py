@@ -54,9 +54,24 @@ def _remove_existing(path: Path) -> None:
         shutil.rmtree(path)
 
 
+def _resolve_parent_only(path: Path) -> Path:
+    expanded = Path(path).expanduser()
+    return expanded.parent.resolve(strict=False) / expanded.name
+
+
+def _reject_package_symlinks(path: Path) -> None:
+    if path.is_symlink():
+        raise InstallError(f"plugin package entries must not be symlinks: {path}")
+    if not path.is_dir():
+        return
+    for candidate in path.rglob("*"):
+        if candidate.is_symlink():
+            raise InstallError(f"plugin package entries must not be symlinks: {candidate}")
+
+
 def copy_plugin(source: Path, destination: Path) -> None:
     source_root = Path(source).expanduser().resolve(strict=True)
-    target = Path(destination).expanduser().resolve(strict=False)
+    target = _resolve_parent_only(destination)
     _load_gate_manifest(source_root)
     if target == source_root or target.is_relative_to(source_root):
         raise InstallError("plugin destination must be outside the source checkout")
@@ -68,6 +83,7 @@ def copy_plugin(source: Path, destination: Path) -> None:
         item = source_root / name
         if not item.exists():
             raise InstallError(f"plugin package is missing required entry: {name}")
+        _reject_package_symlinks(item)
         installed = target / name
         if item.is_dir():
             shutil.copytree(item, installed, ignore=ignore)
@@ -91,7 +107,7 @@ def update_marketplace(
     plugin_path: Path,
     marketplace_name: str = "personal",
 ) -> None:
-    marketplace_path = Path(path).expanduser().resolve(strict=False)
+    marketplace_path = _resolve_parent_only(path)
     installed_plugin = Path(plugin_path).expanduser().resolve(strict=False)
     expected_plugin = marketplace_path.parents[2] / "plugins" / "gate"
     if installed_plugin != expected_plugin:
@@ -99,6 +115,8 @@ def update_marketplace(
             f"personal Gate plugin must be installed at {expected_plugin}"
         )
 
+    if marketplace_path.is_symlink():
+        raise InstallError(f"marketplace.json must not be a symlink: {marketplace_path}")
     if marketplace_path.exists():
         try:
             payload = json.loads(marketplace_path.read_text(encoding="utf-8"))

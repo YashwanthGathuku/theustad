@@ -17,6 +17,10 @@ source: local
 source path: ~/plugins/gate
 authPolicy: ON_INSTALL
 
+After installer hardening, SHA-256 hashes for `scripts/install_plugin.py`
+matched across the source checkout, `~/plugins/gate`, and the Codex plugin
+cache.
+
 Installed source and Codex cache file set:
 gate.py
 LICENSE

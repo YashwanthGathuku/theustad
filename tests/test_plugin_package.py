@@ -157,6 +157,61 @@ def test_copy_plugin_replaces_stale_destination_content(tmp_path):
     assert (destination / ".codex-plugin" / "plugin.json").is_file()
 
 
+def test_copy_plugin_replaces_destination_symlink_without_following_it(tmp_path):
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    marker = victim / "keep.txt"
+    marker.write_text("do not delete", encoding="utf-8")
+    destination = tmp_path / "plugins" / "gate"
+    destination.parent.mkdir()
+    try:
+        destination.symlink_to(victim, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlinks unavailable: {error}")
+
+    copy_plugin(ROOT, destination)
+
+    assert marker.read_text(encoding="utf-8") == "do not delete"
+    assert destination.is_dir()
+    assert not destination.is_symlink()
+    assert (destination / ".codex-plugin" / "plugin.json").is_file()
+
+
+def test_copy_plugin_does_not_resolve_final_destination_component(
+    tmp_path, monkeypatch
+):
+    destination = tmp_path / "plugins" / "gate"
+    destination.parent.mkdir()
+    original_resolve = Path.resolve
+
+    def guarded_resolve(path, *args, **kwargs):
+        if path == destination:
+            raise AssertionError("final destination component was resolved")
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", guarded_resolve)
+
+    copy_plugin(ROOT, destination)
+
+    assert (destination / ".codex-plugin" / "plugin.json").is_file()
+
+
+def test_copy_plugin_rejects_symlinked_package_entry(tmp_path, monkeypatch):
+    destination = tmp_path / "plugins" / "gate"
+    symlinked_entry = ROOT / "gate.py"
+    original_is_symlink = Path.is_symlink
+
+    def fake_is_symlink(path):
+        if path == symlinked_entry:
+            return True
+        return original_is_symlink(path)
+
+    monkeypatch.setattr(Path, "is_symlink", fake_is_symlink)
+
+    with pytest.raises(InstallError, match="symlink"):
+        copy_plugin(ROOT, destination)
+
+
 def test_copy_plugin_rejects_source_without_gate_manifest(tmp_path):
     source = tmp_path / "empty"
     source.mkdir()
@@ -203,6 +258,22 @@ def test_update_marketplace_replaces_gate_in_place(tmp_path):
         "after",
     ]
     assert payload["plugins"][1]["source"]["path"] == "./plugins/gate"
+
+
+def test_update_marketplace_rejects_symlinked_manifest(tmp_path, monkeypatch):
+    path = tmp_path / ".agents" / "plugins" / "marketplace.json"
+    plugin_path = tmp_path / "plugins" / "gate"
+    original_is_symlink = Path.is_symlink
+
+    def fake_is_symlink(candidate):
+        if candidate == path:
+            return True
+        return original_is_symlink(candidate)
+
+    monkeypatch.setattr(Path, "is_symlink", fake_is_symlink)
+
+    with pytest.raises(InstallError, match="symlink"):
+        update_marketplace(path, plugin_path=plugin_path)
 
 
 def test_installer_invokes_codex_plugin_add_with_argv(tmp_path):
