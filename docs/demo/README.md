@@ -14,6 +14,45 @@ part of Gate's protected baseline. Do not describe this as an upstream bug.
 Use Linux, macOS, or WSL 2. Native Windows cannot truthfully demonstrate
 Gate's required process-group termination behavior.
 
+## Captured before-and-after result
+
+The permanent transcripts are in
+[`docs/evidence/real_project_demo`](../evidence/real_project_demo/README.md).
+All three runs began from the same `1 failed, 49 passed` baseline.
+
+| Workflow | Result | What the developer receives |
+|---|---|---|
+| Ordinary Codex without Gate | 50 tests passed | Agent output and a working-tree diff, but no independent verdict or audit |
+| Original Gate CLI | `FINAL VERIFIED`, 51 tests passed | Protected verification plus a four-record audit chain |
+| Gate Codex plugin | `FINAL VERIFIED`, 50 tests passed | The same protected core through `$gate:run`, plus `$gate:audit` |
+
+The implementations are all correct. The comparison demonstrates Gate's real
+job: deciding whether a completion claim is supported by protected evidence
+and leaving a portable record. It does not claim that Gate makes Codex write
+better code.
+
+## Reproduce all three paths in WSL 2
+
+The checked-in runners create three independent target clones so no workflow
+inherits another workflow's changes. From a Linux-home Gate clone on branch
+`Ash/gate-codex-plugin`:
+
+```bash
+bash docs/demo/prepare_wsl_demo.sh
+
+codex plugin remove gate@personal --json || true
+bash docs/demo/run_no_gate_wsl.sh
+bash docs/demo/run_gate_cli_wsl.sh
+
+$HOME/.local/share/gate-demo/gate-plugin-venv/bin/python \
+  scripts/install_plugin.py
+bash docs/demo/run_gate_plugin_wsl.sh
+```
+
+The runners write raw evidence to `$HOME/gate-demo-evidence` and Gate state to
+`$HOME/.local/state/gate-demo`, both outside the target projects. Override the
+documented environment variables in each script when using other locations.
+
 ## Prepare the real repository
 
 Set absolute paths for the Gate checkout, target clone, and an external virtual
@@ -112,6 +151,23 @@ external-state setup; it does not redefine verdicts or weaken the standalone
 CLI contract.
 
 ## Two-minute recording
+
+1. **Before Gate, 20 seconds.** Show the pinned iniconfig project, failing
+   acceptance test, then the completed ordinary Codex run. Point out that 50
+   tests pass but `GATE_VERDICT`, `AUDIT_LOG`, and `AUDIT_ROOT` are absent.
+2. **Original CLI, 20 seconds.** Show the same failing baseline in its clean
+   clone, then the CLI's `FINAL VERIFIED`, exact child thread, and audit root.
+3. **Plugin setup, 15 seconds.** Show `gate@personal` enabled and invoke
+   `$gate:run` from the third clean clone.
+4. **Plugin result, 35 seconds.** Speed up waiting time in the edit, but keep
+   the exact child thread, verifier output, and terminal verdict readable.
+5. **Independent proof, 15 seconds.** Invoke `$gate:audit` and show the matching
+   record count and SHA-256 root.
+6. **Developer result, 15 seconds.** Show the side-by-side table and close with:
+   "Codex can write the change either way. Gate makes completion independently
+   verifiable from protected evidence, through a plugin or the original CLI."
+
+The longer recording can retain the original walkthrough below:
 
 1. **Real project, 10 seconds.** Show the iniconfig GitHub page, pinned commit,
    and clean Git history. Say that the feature and acceptance test are demo

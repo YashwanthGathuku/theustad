@@ -8,6 +8,10 @@
 - Host shell: PowerShell on native Windows
 - Supported runtime note: no WSL distribution is installed, so this host does
   not currently satisfy SPEC section 1's WSL 2 requirement for running Gate.
+- Follow-up on 2026-07-20: Ubuntu 24.04 under WSL 2 was installed and the live
+  standalone CLI and installed-plugin runs were completed there. See
+  `docs/evidence/real_project_demo/README.md`; the original Prompt 0 observation
+  above is retained as historical evidence.
 - Codex Desktop package: `OpenAI.Codex_26.715.2305.0_x64__2p2nqsd0c76g0`
 - Codex CLI executable:
   `C:\Users\Gathu\AppData\Local\OpenAI\Codex\bin\5dee10576ec7a5b8\codex.exe`

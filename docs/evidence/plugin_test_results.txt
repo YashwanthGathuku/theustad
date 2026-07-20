@@ -12,11 +12,14 @@ Exit code: 0
 
 Output:
 21 passed, 1 skipped in 1.06s
-152 passed, 4 skipped in 33.39s
+153 passed, 4 skipped in 37.95s on native Windows
+157 passed in 10.89s on WSL 2 / Ubuntu 24.04
+Plugin validation passed
 
 Three native Windows skips cover pre-existing POSIX-only process-group and
 symlink behavior. The fourth is the installer's real directory-symlink
 integration test; deterministic tests still exercise the final-component
-resolution rule on Windows. GitHub Actions runs the full suite on Linux with
-Python 3.10 and 3.13. The run also emitted the pre-existing requests dependency
-mismatch and pytest-asyncio loop-scope deprecation warnings.
+resolution rule on Windows. The WSL run exercises all POSIX cases. GitHub
+Actions also runs the suite on Linux with Python 3.10 and 3.13. The Windows run
+emitted the pre-existing requests dependency mismatch and pytest-asyncio
+loop-scope deprecation warnings.

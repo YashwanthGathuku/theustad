@@ -10,6 +10,7 @@ SHA-256 chained audit log.
 - Devpost: https://devpost.com/software/gate-0lypv2
 - Current deterministic-fixture demo: https://youtu.be/kGGdz649zCQ
 - Real-project replacement recording: [`docs/demo/README.md`](docs/demo/README.md)
+- Before/after comparison evidence: [`docs/evidence/real_project_demo`](docs/evidence/real_project_demo/README.md)
 - Permanent release evidence: [`docs/evidence`](docs/evidence)
 - Anchored rehearsal root:
   `200042504cd90869d2bc8edcd60278049e231ead88ae69a60919a64a335d4a20`
@@ -121,6 +122,20 @@ copy-paste paths for the Codex plugin and original standalone CLI, plus a
 two-minute shot list and honesty labels:
 
 [`docs/demo/README.md`](docs/demo/README.md)
+
+The captured comparison uses three clean clones of the same pinned project:
+
+| Mode | Independent result | Verification evidence |
+|---|---:|---|
+| Ordinary Codex without Gate | 50 passed | No Gate verdict, audit log, or root |
+| Standalone Gate CLI | 51 passed | `FINAL VERIFIED` plus independently valid SHA-256 chain |
+| Installed Gate plugin | 50 passed | `$gate:run` verified, then `$gate:audit` validated the chain |
+
+Ordinary Codex solved the task. Gate's demonstrated value is the protected,
+independent completion decision and portable audit record, not a claim that it
+improves the generated implementation. The plugin provides that same core
+inside the developer's active Codex workflow; the CLI remains available for
+automation and direct review.
 
 For a clean checkout, give the target fixture its own Git history before a
 live Codex run:

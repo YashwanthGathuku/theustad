@@ -1,0 +1,25 @@
+F.................................................                       [100%]
+=================================== FAILURES ===================================
+_______________ test_lengths_report_sections_and_section_entries _______________
+
+    def test_lengths_report_sections_and_section_entries() -> None:
+        config = IniConfig(
+            "gate-demo.ini",
+            """\
+    [alpha]
+    first = 1
+    second = 2
+    
+    [beta]
+    third = 3
+    """,
+        )
+    
+>       assert len(config) == 2
+               ^^^^^^^^^^^
+E       TypeError: object of type 'IniConfig' has no len()
+
+testing/test_gate_demo_acceptance.py:17: TypeError
+=========================== short test summary info ============================
+FAILED testing/test_gate_demo_acceptance.py::test_lengths_report_sections_and_section_entries
+1 failed, 49 passed in 0.22s

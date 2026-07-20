@@ -34,10 +34,11 @@ python verify_chain.py docs/evidence/live_audit_20260719_051748.jsonl
 
 ## Test transcript
 
-`test_results.txt` records `111 passed, 3 skipped` on native Windows. The
-skips are the POSIX process-group and symlink cases; native Windows is not a
-supported Gate runtime. The GitHub Actions matrix runs the complete suite on
-Linux with Python 3.10 and 3.13.
+`test_results.txt` preserves the pre-plugin core run. The later
+`plugin_test_results.txt` records `153 passed, 4 skipped` on native Windows and
+`157 passed` on WSL 2. The Windows skips are POSIX process-group and symlink
+cases; native Windows is not a supported Gate runtime. The GitHub Actions
+matrix also runs the complete suite on Linux with Python 3.10 and 3.13.
 
 ## Codex plugin
 
@@ -47,13 +48,14 @@ Linux with Python 3.10 and 3.13.
   `plugin_install.txt`
 - Fresh Codex `$gate:audit` invocation: `plugin_skill_audit.txt`
 - Real-project recording preparation: `real_project_demo_prep.txt`
+- Three-way real-project comparison: [`real_project_demo`](real_project_demo/README.md)
 - Fresh Codex thread: `019f80bd-68ce-7452-b995-a3f708981852`
 - Installed audit exit code: `0`
 - Installed audit root:
   `200042504cd90869d2bc8edcd60278049e231ead88ae69a60919a64a335d4a20`
 
-The plugin package is installed and discoverable on this workstation. Its
-read-only audit skill was exercised through a fresh Codex task. A live
-`$gate:run` is intentionally not claimed here: the workstation has no WSL
-distribution, and Gate fails closed on unsupported native Windows process
-termination semantics.
+The plugin package is installed and discoverable. The earlier native-Windows
+audit-only evidence remains for platform fail-closed coverage. The later WSL 2
+comparison includes a live installed `$gate:run`, exact parent and child task
+IDs, independent pytest output, installed `$gate:audit`, and a second direct
+chain validation.
