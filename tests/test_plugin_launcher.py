@@ -1,17 +1,26 @@
 from __future__ import annotations
 
 import subprocess
+import sys
+from argparse import Namespace
 from pathlib import Path
 
 import pytest
 
 from scripts.gate_plugin import (
+    PLUGIN_ROOT,
     PluginError,
     allocate_state_dir,
+    build_audit_argv,
+    build_gate_argv,
+    build_parser,
     default_state_home,
     doctor,
     ensure_supported_platform,
+    main,
     resolve_repo,
+    run_audit,
+    run_gate,
 )
 
 
@@ -188,3 +197,161 @@ def test_doctor_rejects_missing_codex_json_flag(tmp_path):
             which=lambda name: "/usr/bin/codex" if name == "codex" else None,
             state_home=tmp_path / "state",
         )
+
+
+def test_run_parser_requires_exactly_one_task_source():
+    parser = build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["run"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["run", "--task-text", "fix it", "--task-file", "task.md"]
+        )
+
+
+def test_gate_argv_uses_absolute_python_plugin_core_and_state_dir(tmp_path):
+    state = tmp_path / "state"
+    argv = build_gate_argv(
+        repo=tmp_path / "repo with spaces",
+        task_path=state / "task.txt",
+        state_dir=state,
+        verifier=None,
+        timeout=60,
+        max_retries=2,
+    )
+
+    assert Path(argv[0]).is_absolute()
+    assert Path(argv[0]) == Path(sys.executable).resolve()
+    assert Path(argv[1]) == PLUGIN_ROOT / "gate.py"
+    assert argv[argv.index("--state-dir") + 1] == str(state)
+    assert argv[argv.index("--log") + 1] == str(state / "logs")
+    assert "repo with spaces" in argv[argv.index("--repo") + 1]
+
+
+def test_custom_verifier_is_forwarded_as_one_argument(tmp_path):
+    argv = build_gate_argv(
+        repo=tmp_path / "repo",
+        task_path=tmp_path / "task.txt",
+        state_dir=tmp_path / "state",
+        verifier="python -m pytest checks -q",
+        timeout=60,
+        max_retries=2,
+    )
+
+    assert argv[argv.index("--verifier") + 1] == "python -m pytest checks -q"
+
+
+def test_task_text_is_copied_to_external_state_and_exit_code_passes_through(
+    tmp_path,
+    monkeypatch,
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    state = tmp_path / "external-state"
+    state.mkdir()
+    calls = []
+
+    monkeypatch.setattr("scripts.gate_plugin.resolve_repo", lambda repo, cwd=None: repo)
+    monkeypatch.setattr("scripts.gate_plugin.doctor", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "scripts.gate_plugin.allocate_state_dir",
+        lambda repo, state_home=None: state,
+    )
+
+    def process_runner(argv, cwd):
+        calls.append((argv, cwd))
+        return 7
+
+    args = build_parser().parse_args(
+        ["run", "--repo", str(repo), "--task-text", "Fix the parser"]
+    )
+    result = run_gate(args, process_runner=process_runner)
+
+    assert result == 7
+    assert (state / "task.txt").read_text(encoding="utf-8") == "Fix the parser"
+    argv, cwd = calls[0]
+    assert cwd == PLUGIN_ROOT
+    assert argv[argv.index("--task") + 1] == str(state / "task.txt")
+
+
+def test_task_file_is_resolved_without_copying(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    task = repo / "task.md"
+    task.write_text("Use this task", encoding="utf-8")
+    state = tmp_path / "external-state"
+    state.mkdir()
+    calls = []
+
+    monkeypatch.setattr("scripts.gate_plugin.resolve_repo", lambda repo, cwd=None: repo)
+    monkeypatch.setattr("scripts.gate_plugin.doctor", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "scripts.gate_plugin.allocate_state_dir",
+        lambda repo, state_home=None: state,
+    )
+
+    def process_runner(argv, cwd):
+        calls.append((argv, cwd))
+        return 0
+
+    args = build_parser().parse_args(
+        ["run", "--repo", str(repo), "--task-file", str(task)]
+    )
+    result = run_gate(args, process_runner=process_runner)
+
+    assert result == 0
+    argv, _ = calls[0]
+    assert argv[argv.index("--task") + 1] == str(task.resolve())
+    assert not (state / "task.txt").exists()
+
+
+def test_missing_task_file_is_rejected_before_launch(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    state = tmp_path / "external-state"
+    state.mkdir()
+    monkeypatch.setattr("scripts.gate_plugin.resolve_repo", lambda repo, cwd=None: repo)
+    monkeypatch.setattr("scripts.gate_plugin.doctor", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "scripts.gate_plugin.allocate_state_dir",
+        lambda repo, state_home=None: state,
+    )
+
+    args = build_parser().parse_args(
+        ["run", "--repo", str(repo), "--task-file", str(repo / "missing.md")]
+    )
+    with pytest.raises(PluginError, match="task file"):
+        run_gate(args, process_runner=lambda argv, cwd: 0)
+
+
+def test_audit_uses_bundled_verify_chain_and_passes_exit_code(tmp_path):
+    log = tmp_path / "audit.jsonl"
+    log.write_text("{}\n", encoding="utf-8")
+    calls = []
+
+    def process_runner(argv, cwd):
+        calls.append((argv, cwd))
+        return 9
+
+    result = run_audit(
+        Namespace(log_path=log),
+        process_runner=process_runner,
+    )
+
+    assert result == 9
+    argv, cwd = calls[0]
+    assert argv == build_audit_argv(log.resolve())
+    assert Path(argv[0]) == Path(sys.executable).resolve()
+    assert Path(argv[1]) == PLUGIN_ROOT / "verify_chain.py"
+    assert cwd == PLUGIN_ROOT
+
+
+def test_main_prints_plugin_error_and_exits_two(monkeypatch, capsys):
+    def fail(args, process_runner=None):
+        raise PluginError("preflight failed")
+
+    monkeypatch.setattr("scripts.gate_plugin.run_gate", fail)
+
+    assert main(["run", "--task-text", "fix it"]) == 2
+    assert "GATE_PLUGIN_ERROR preflight failed" in capsys.readouterr().err

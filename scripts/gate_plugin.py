@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import os
 import platform
@@ -14,6 +15,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 
 
 class PluginError(RuntimeError):
@@ -36,6 +40,7 @@ CaptureRunner = Callable[
     subprocess.CompletedProcess[str],
 ]
 Which = Callable[[str], str | None]
+ProcessRunner = Callable[[list[str], Path | None], int]
 
 
 def run_capture(
@@ -50,6 +55,15 @@ def run_capture(
         shell=False,
         check=False,
     )
+
+
+def run_streaming(argv: list[str], cwd: Path | None = None) -> int:
+    return subprocess.run(
+        argv,
+        cwd=cwd,
+        shell=False,
+        check=False,
+    ).returncode
 
 
 def ensure_supported_platform(*, os_name: str | None = None) -> None:
@@ -212,3 +226,166 @@ def doctor(
         verifier=verifier_label,
         state_home=resolved_state_home,
     )
+
+
+def build_gate_argv(
+    *,
+    repo: Path,
+    task_path: Path,
+    state_dir: Path,
+    verifier: str | None,
+    timeout: float,
+    max_retries: int,
+) -> list[str]:
+    argv = [
+        str(Path(sys.executable).resolve()),
+        str(PLUGIN_ROOT / "gate.py"),
+        "--repo",
+        str(repo),
+        "--task",
+        str(task_path),
+        "--state-dir",
+        str(state_dir),
+        "--log",
+        str(state_dir / "logs"),
+        "--timeout",
+        str(timeout),
+        "--max-retries",
+        str(max_retries),
+        "--no-color",
+    ]
+    if verifier is not None:
+        argv.extend(["--verifier", verifier])
+    return argv
+
+
+def run_gate(
+    args: argparse.Namespace,
+    process_runner: ProcessRunner = run_streaming,
+) -> int:
+    repo = resolve_repo(args.repo)
+    doctor(
+        repo,
+        verifier=args.verifier,
+        state_home=args.state_home,
+    )
+    state_dir = allocate_state_dir(repo, state_home=args.state_home)
+
+    if args.task_text is not None:
+        task_path = state_dir / "task.txt"
+        task_path.write_text(args.task_text, encoding="utf-8")
+    else:
+        try:
+            task_path = Path(args.task_file).expanduser().resolve(strict=True)
+        except OSError as error:
+            raise PluginError(f"task file does not exist: {args.task_file}") from error
+        if not task_path.is_file():
+            raise PluginError(f"task file is not a regular file: {task_path}")
+
+    argv = build_gate_argv(
+        repo=repo,
+        task_path=task_path,
+        state_dir=state_dir,
+        verifier=args.verifier,
+        timeout=args.timeout,
+        max_retries=args.max_retries,
+    )
+    print(f"GATE_PLUGIN_STATE {state_dir}")
+    return process_runner(argv, PLUGIN_ROOT)
+
+
+def build_audit_argv(log_path: Path) -> list[str]:
+    return [
+        str(Path(sys.executable).resolve()),
+        str(PLUGIN_ROOT / "verify_chain.py"),
+        str(log_path),
+    ]
+
+
+def run_audit(
+    args: argparse.Namespace,
+    process_runner: ProcessRunner = run_streaming,
+) -> int:
+    try:
+        log_path = Path(args.log_path).expanduser().resolve(strict=True)
+    except OSError as error:
+        raise PluginError(f"audit log does not exist: {args.log_path}") from error
+    if not log_path.is_file():
+        raise PluginError(f"audit log is not a regular file: {log_path}")
+    return process_runner(build_audit_argv(log_path), PLUGIN_ROOT)
+
+
+def _positive(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return parsed
+
+
+def _nonnegative(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be nonnegative")
+    return parsed
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="gate-plugin",
+        description="Run the bundled Gate v2 runtime from a Codex plugin.",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    doctor_parser = subparsers.add_parser("doctor", help="check Gate prerequisites")
+    doctor_parser.add_argument("--repo", type=Path)
+    doctor_parser.add_argument("--verifier")
+    doctor_parser.add_argument("--state-home", type=Path)
+
+    run_parser = subparsers.add_parser("run", help="run a Gate-controlled Codex task")
+    run_parser.add_argument("--repo", type=Path)
+    tasks = run_parser.add_mutually_exclusive_group(required=True)
+    tasks.add_argument("--task-text")
+    tasks.add_argument("--task-file", type=Path)
+    run_parser.add_argument("--verifier")
+    run_parser.add_argument("--state-home", type=Path)
+    run_parser.add_argument("--timeout", type=_positive, default=600.0)
+    run_parser.add_argument("--max-retries", type=_nonnegative, default=3)
+
+    audit_parser = subparsers.add_parser("audit", help="verify a Gate audit chain")
+    audit_parser.add_argument("log_path", type=Path)
+    return parser
+
+
+def _run_doctor(args: argparse.Namespace) -> int:
+    repo = resolve_repo(args.repo)
+    report = doctor(
+        repo,
+        verifier=args.verifier,
+        state_home=args.state_home,
+    )
+    print(f"GATE_DOCTOR_REPO {report.repo}")
+    print(f"GATE_DOCTOR_PYTHON {report.python} ({report.python_version})")
+    print(f"GATE_DOCTOR_CODEX {report.codex} ({report.codex_version})")
+    print(f"GATE_DOCTOR_VERIFIER {report.verifier}")
+    print(f"GATE_DOCTOR_STATE_HOME {report.state_home}")
+    print("GATE_DOCTOR_OK")
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        if args.command == "doctor":
+            return _run_doctor(args)
+        if args.command == "run":
+            return run_gate(args)
+        if args.command == "audit":
+            return run_audit(args)
+        raise PluginError(f"unsupported command: {args.command}")
+    except (OSError, PluginError) as error:
+        print(f"GATE_PLUGIN_ERROR {error}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
