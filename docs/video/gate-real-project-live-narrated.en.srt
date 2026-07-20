@@ -1,0 +1,48 @@
+1
+00:00:00,000 --> 00:00:11,000
+Gate v2 verifies coding agent completion claims. This is a real task in a pinned clone of the iniconfig project, recorded from Codex Desktop.
+
+2
+00:00:12,000 --> 00:00:27,000
+I used Codex with GPT-5.6 to make the requested change. First, this is the ordinary workflow without Gate.
+
+3
+00:00:28,000 --> 00:00:43,000
+Codex starts on the same task, changes the real project, and runs its tests. The task may look complete, but only the agent's final message explains the result.
+
+4
+00:00:44,000 --> 00:00:59,000
+There is no protected task binding, independent verdict, or audit root. A developer must trust the claim, inspect the work manually, or try to reconstruct the evidence later.
+
+5
+00:01:00,000 --> 00:01:15,000
+That is the gap Gate addresses. Passing a narrow test or saying done is not the same as a completion claim that can be checked by someone else.
+
+6
+00:01:16,000 --> 00:01:28,000
+Now Gate is installed from the public master branch and discovered in Codex as gate at personal.
+
+7
+00:01:29,000 --> 00:01:44,000
+The gate run skill starts a fresh protected child task. The agent still performs the implementation work, while Gate enforces what has to be true before completion is accepted.
+
+8
+00:01:45,000 --> 00:02:00,000
+Gate binds the task, protects the verifier and test configuration, records the evidence, and independently checks the finished state.
+
+9
+00:02:01,000 --> 00:02:17,000
+Here, the child run changes the real project and runs the prescribed verification. Gate records manifest checks, timeout handling, the final claim, and the SHA-256 audit chain.
+
+10
+00:02:18,000 --> 00:02:31,000
+An agent cannot make a passing narrow test become a verified completion merely by writing a confident final message.
+
+11
+00:02:32,000 --> 00:02:44,000
+The result is FINAL VERIFIED. Gate reports the exact child thread ID, the audit root, and an independent verifier validates that chain.
+
+12
+00:02:45,000 --> 00:02:54,000
+Without Gate, Codex says the project is complete. With Gate, that completion claim is independently auditable.
+

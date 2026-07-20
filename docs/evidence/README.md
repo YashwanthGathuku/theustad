@@ -67,8 +67,10 @@ chain validation.
 
 ## Live real-project video
 
-- Public YouTube video: https://youtu.be/njgvvLapxs0
-- Recording: [`../video/gate-real-project-live.mp4`](../video/gate-real-project-live.mp4)
+- Public narrated YouTube video: https://youtu.be/cAaMzRLyqWQ
+- Submission recording: [`../video/gate-real-project-live-narrated.mp4`](../video/gate-real-project-live-narrated.mp4)
+- Captions: [`../video/gate-real-project-live-narrated.en.srt`](../video/gate-real-project-live-narrated.en.srt)
+- Preserved raw capture: [`../video/gate-real-project-live.mp4`](../video/gate-real-project-live.mp4)
 - Exact outputs and audit: [`real_project_video`](real_project_video/README.md)
 - Ordinary Codex task: `019f8114-db91-7e02-9be5-5ea375163ecc`
 - Gate child task: `019f8116-30ab-7981-b85e-f45cbb74ceab`
@@ -77,7 +79,7 @@ chain validation.
 - Audit root:
   `5241d2d1e9ea87699c52333d7b8c16db8b6bbda961e9921c831992cb178c186b`
 - Video SHA-256:
-  `AC7240A101F72531E3CA69D6B601B5839C91318C1DC3D403660D229C23D26076`
+  `AEBC3A31727C3942CCE85D2ED4FCCD5887FD191D51565AF9E0B6068BC806D266`
 
 The recording visibly compares a successful ordinary Codex result with the
 same class of task through the installed plugin. Both produce working code;

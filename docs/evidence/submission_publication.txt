@@ -2,19 +2,25 @@ Gate v2 public submission publication
 Date: 2026-07-20
 
 YouTube:
-URL: https://youtu.be/njgvvLapxs0
+URL: https://youtu.be/cAaMzRLyqWQ
 Title: Gate v2: Codex Says Done. Gate Verifies It. | Live Project Demo
 Visibility: Public
 Duration: 2:55
 Copyright checks: complete, no issues found
-Public oEmbed lookup: succeeded with the exact title and channel
+Voiceover: included in the published MP4
+Captions: burned into the published MP4; matching `.en.srt` sidecar is in the repository
 
 Devpost:
 URL: https://devpost.com/software/gate-0lypv2
 Project ID: 1356174
-Version after update: 4
+Version after update: 5
 State after read-back: published
 Hackathon after read-back: OpenAI Build Week
+Primary video after replacement read-back: https://youtu.be/cAaMzRLyqWQ
+
+Initial-publication archive (superseded as the submission video by the
+narrated replacement above):
+Project version after initial update: 4
 Primary video after read-back: https://youtu.be/njgvvLapxs0
 
 The Devpost description leads with the documented verification problem,

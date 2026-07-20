@@ -2,18 +2,33 @@
 
 ## Live real-project comparison
 
-[`gate-real-project-live.mp4`](gate-real-project-live.mp4) is the current live
-working-proof recording. It is an actual desktop capture of authenticated
-Codex runs against two clean clones of the pinned `pytest-dev/iniconfig`
-project, not a reconstruction of prior console text.
+[`gate-real-project-live-narrated.mp4`](gate-real-project-live-narrated.mp4)
+is the current submission recording. It combines the actual desktop capture of
+authenticated Codex runs against two clean clones of the pinned
+`pytest-dev/iniconfig` project with a voiceover and burned-in captions. It is
+not a reconstruction of prior console text.
 
-Public YouTube video: https://youtu.be/njgvvLapxs0
+Public YouTube video: https://youtu.be/cAaMzRLyqWQ
 
-The 2 minute 55 second, 1920x1080 H.264 file has SHA-256:
+The 175-second, 1920x1080 H.264/AAC file has SHA-256:
 
 ```text
-AC7240A101F72531E3CA69D6B601B5839C91318C1DC3D403660D229C23D26076
+AEBC3A31727C3942CCE85D2ED4FCCD5887FD191D51565AF9E0B6068BC806D266
 ```
+
+Its matching sidecar captions are
+[`gate-real-project-live-narrated.en.srt`](gate-real-project-live-narrated.en.srt).
+Rebuild the narrated file from the preserved raw capture with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File docs/video/build_live_narrated_demo.ps1
+```
+
+[`gate-real-project-live.mp4`](gate-real-project-live.mp4) remains the
+original silent desktop capture used as the source recording. Its original
+digest and machine-readable probe are retained under
+[`../evidence/real_project_video`](../evidence/real_project_video/README.md).
 
 Timeline:
 

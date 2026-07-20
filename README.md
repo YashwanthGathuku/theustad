@@ -137,9 +137,9 @@ human review and strong acceptance tests.
 ## OpenAI Build Week submission
 
 - Devpost: https://devpost.com/software/gate-0lypv2
-- Public live real-project demo: https://youtu.be/njgvvLapxs0
+- Public narrated live real-project demo: https://youtu.be/cAaMzRLyqWQ
 - Deterministic adversarial-fixture demo: https://youtu.be/kGGdz649zCQ
-- Live real-project video: [`docs/video/gate-real-project-live.mp4`](docs/video/gate-real-project-live.mp4)
+- Live real-project video: [`docs/video/gate-real-project-live-narrated.mp4`](docs/video/gate-real-project-live-narrated.mp4)
 - Video timeline and integrity: [`docs/video/README.md`](docs/video/README.md)
 - Real-project recording procedure: [`docs/demo/README.md`](docs/demo/README.md)
 - Before/after comparison evidence: [`docs/evidence/real_project_demo`](docs/evidence/real_project_demo/README.md)
@@ -302,13 +302,18 @@ two-minute shot list and honesty labels:
 [`docs/demo/README.md`](docs/demo/README.md)
 
 The checked-in
-[`live recording`](docs/video/gate-real-project-live.mp4) shows the ordinary
-control run, plugin installation, live `$gate:run`, exact verified child, audit
-validation, and the final before/after comparison. Its full transcripts and
-audit are under
+[`narrated live recording`](docs/video/gate-real-project-live-narrated.mp4)
+shows the ordinary control run, plugin installation, live `$gate:run`, exact
+verified child, audit validation, and the final before/after comparison. It
+adds a voiceover and burned-in captions to the preserved desktop capture. Its
+full transcripts and audit are under
 [`docs/evidence/real_project_video`](docs/evidence/real_project_video/README.md).
-The same recording is [public on YouTube](https://youtu.be/njgvvLapxs0) for
-judges who do not want to download the checked-in MP4.
+The narrated recording is [public on YouTube](https://youtu.be/cAaMzRLyqWQ)
+for judges who do not want to download the checked-in MP4. The original silent
+capture remains at [`docs/video/gate-real-project-live.mp4`](docs/video/gate-real-project-live.mp4)
+as recording-source evidence. Its initial public upload,
+https://youtu.be/njgvvLapxs0, remains available as a historical recording
+reference; the narrated upload above is the current submission video.
 
 The live recording uses two clean clones of the same pinned project:
 
