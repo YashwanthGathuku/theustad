@@ -24,6 +24,7 @@ PACKAGE_ENTRIES = (
     "gatelib",
     "verify_chain.py",
     "LICENSE",
+    "NOTICE",
     "README.md",
 )
 ProcessRunner = Callable[[list[str], Path | None], int]

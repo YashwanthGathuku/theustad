@@ -16,9 +16,13 @@ Gate's required process-group termination behavior.
 
 ## Captured before-and-after result
 
-The permanent transcripts are in
+The screen-recorded live proof is
+[`docs/video/gate-real-project-live.mp4`](../video/gate-real-project-live.mp4),
+with exact recording outputs under
+[`docs/evidence/real_project_video`](../evidence/real_project_video/README.md).
+The earlier permanent transcript comparison remains under
 [`docs/evidence/real_project_demo`](../evidence/real_project_demo/README.md).
-All three runs began from the same `1 failed, 49 passed` baseline.
+All runs began from the same `1 failed, 49 passed` baseline.
 
 | Workflow | Result | What the developer receives |
 |---|---|---|

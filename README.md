@@ -9,7 +9,9 @@ SHA-256 chained audit log.
 
 - Devpost: https://devpost.com/software/gate-0lypv2
 - Current deterministic-fixture demo: https://youtu.be/kGGdz649zCQ
-- Real-project replacement recording: [`docs/demo/README.md`](docs/demo/README.md)
+- Live real-project video: [`docs/video/gate-real-project-live.mp4`](docs/video/gate-real-project-live.mp4)
+- Video timeline and integrity: [`docs/video/README.md`](docs/video/README.md)
+- Real-project recording procedure: [`docs/demo/README.md`](docs/demo/README.md)
 - Before/after comparison evidence: [`docs/evidence/real_project_demo`](docs/evidence/real_project_demo/README.md)
 - Permanent release evidence: [`docs/evidence`](docs/evidence)
 - Anchored rehearsal root:
@@ -23,6 +25,25 @@ SHA-256 chained audit log.
   is not supported and must not be presented as supported behavior.
 - Runtime code uses only the Python standard library. Pytest is the development
   and default verifier dependency.
+
+## Quick start
+
+For the Codex plugin, install once from a supported shell:
+
+```bash
+git clone https://github.com/YashwanthGathuku/gate.git
+cd gate
+python3 -m venv "$HOME/.local/share/gate/plugin-venv"
+GATE_PYTHON="$HOME/.local/share/gate/plugin-venv/bin/python"
+"$GATE_PYTHON" -m pip install --upgrade pip pytest
+"$GATE_PYTHON" scripts/install_plugin.py
+codex plugin list --json
+```
+
+Restart Codex, open a real Git project, and invoke `$gate:doctor`, `$gate:run`,
+then `$gate:audit`. The complete installation, Codex UI, WSL 2, real-project,
+update, and troubleshooting workflow is in
+[`docs/PLUGIN_GUIDE.md`](https://github.com/YashwanthGathuku/gate/blob/master/docs/PLUGIN_GUIDE.md).
 
 ## Choose an interface
 
@@ -68,19 +89,28 @@ adds three Codex skills: `$gate:doctor`, `$gate:run`, and `$gate:audit`. A Gate
 run starts a separate Gate-controlled child Codex session; it does not claim to
 retroactively protect the conversation that launched it.
 
-Install the local package from a Linux, macOS, or WSL 2 checkout:
+Install the local package from a Linux, macOS, or WSL 2 checkout using the
+external trusted environment from [Quick start](#quick-start):
 
 ```bash
 git clone https://github.com/YashwanthGathuku/gate.git
 cd gate
-python3 scripts/install_plugin.py
-codex plugin list --marketplace personal
+"$GATE_PYTHON" scripts/install_plugin.py
+codex plugin list --json
 ```
 
 The installer copies an allowlisted runtime to `~/plugins/gate`, preserves
 unrelated entries in `~/.agents/plugins/marketplace.json`, and runs
 `codex plugin add gate@personal --json`. Restart Codex if the installed skills
 do not appear immediately.
+
+In Codex Desktop on Linux or macOS, open the target repository and enter the
+skill prompts below in a new task. On a Windows host, run the successful coding
+workflow from the Codex terminal UI inside WSL 2; native Windows Desktop can
+discover the plugin and validate existing logs but `$gate:doctor` and
+`$gate:run` intentionally fail closed. See the
+[plugin guide](https://github.com/YashwanthGathuku/gate/blob/master/docs/PLUGIN_GUIDE.md#windows-with-wsl-2)
+for copy-paste setup.
 
 From any supported Git repository, invoke the skills in Codex:
 
@@ -113,6 +143,26 @@ adversarial rehearsal below remains the repeatable proof of
 `FALSIFIED -> TAMPERED -> VERIFIED`; the plugin workflow demonstrates that the
 same Gate core is installable and usable from an active developer project.
 
+## License and attribution
+
+Gate is licensed under **GPL-3.0-or-later**, replacing the earlier MIT license
+for releases from this commit forward. When distributing Gate or a derivative,
+preserve the copyright and attribution notices, include the license, mark
+changes, and provide corresponding source as required by GPLv3. See
+[`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+
+`NOTICE` applies a reasonable author-attribution preservation term under
+GPLv3 section 7(b) to redistributed copies and derivatives.
+
+The license does not require someone who only runs an unmodified private copy
+to publish a credit statement. The redistribution obligations provide the
+enforceable credit and source-preservation behavior intended for downstream
+copies and forks.
+
+Copies already received under the repository's earlier MIT license retain
+that existing grant; release `0.2.0` and later are distributed under the GPL
+terms above.
+
 ## Real-project recording demo
 
 The recording walkthrough uses the real
@@ -122,6 +172,13 @@ copy-paste paths for the Codex plugin and original standalone CLI, plus a
 two-minute shot list and honesty labels:
 
 [`docs/demo/README.md`](docs/demo/README.md)
+
+The checked-in
+[`live recording`](docs/video/gate-real-project-live.mp4) shows the ordinary
+control run, plugin installation, live `$gate:run`, exact verified child, audit
+validation, and the final before/after comparison. Its full transcripts and
+audit are under
+[`docs/evidence/real_project_video`](docs/evidence/real_project_video/README.md).
 
 The captured comparison uses three clean clones of the same pinned project:
 

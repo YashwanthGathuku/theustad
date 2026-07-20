@@ -44,6 +44,7 @@ matrix also runs the complete suite on Linux with Python 3.10 and 3.13.
 
 - Package validator: `plugin_validation.txt`
 - Plugin-era full test transcript: `plugin_test_results.txt`
+- Version 0.2.0 native and WSL installation: `plugin_0_2_install.txt`
 - Personal marketplace installation and installed-runtime checks:
   `plugin_install.txt`
 - Fresh Codex `$gate:audit` invocation: `plugin_skill_audit.txt`
@@ -59,3 +60,20 @@ audit-only evidence remains for platform fail-closed coverage. The later WSL 2
 comparison includes a live installed `$gate:run`, exact parent and child task
 IDs, independent pytest output, installed `$gate:audit`, and a second direct
 chain validation.
+
+## Live real-project video
+
+- Recording: [`../video/gate-real-project-live.mp4`](../video/gate-real-project-live.mp4)
+- Exact outputs and audit: [`real_project_video`](real_project_video/README.md)
+- Ordinary Codex task: `019f8114-db91-7e02-9be5-5ea375163ecc`
+- Gate child task: `019f8116-30ab-7981-b85e-f45cbb74ceab`
+- Gate verdict: `FINAL VERIFIED`
+- Audit validation: `VALID: 4 records`
+- Audit root:
+  `5241d2d1e9ea87699c52333d7b8c16db8b6bbda961e9921c831992cb178c186b`
+- Video SHA-256:
+  `AC7240A101F72531E3CA69D6B601B5839C91318C1DC3D403660D229C23D26076`
+
+The recording visibly compares a successful ordinary Codex result with the
+same class of task through the installed plugin. Both produce working code;
+only Gate produces the protected independent verdict and audit chain.

@@ -1,13 +1,13 @@
 {
   "name": "gate",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Protected verification and retry for Codex coding tasks.",
   "author": {
     "name": "Yashwanth Gathuku"
   },
   "homepage": "https://devpost.com/software/gate-0lypv2",
   "repository": "https://github.com/YashwanthGathuku/gate",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "keywords": [
     "codex",
     "verification",

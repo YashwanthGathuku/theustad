@@ -12,8 +12,8 @@ Exit code: 0
 
 Output:
 21 passed, 1 skipped in 1.06s
-153 passed, 4 skipped in 37.95s on native Windows
-157 passed in 10.89s on WSL 2 / Ubuntu 24.04
+153 passed, 4 skipped in 35.48s on native Windows
+157 passed in 17.51s on WSL 2 / Ubuntu 24.04
 Plugin validation passed
 
 Three native Windows skips cover pre-existing POSIX-only process-group and

@@ -1,0 +1,42 @@
+Gate Codex plugin 0.2.0 installation verification
+Date: 2026-07-20
+
+Native Windows installation command:
+python scripts/install_plugin.py
+
+Native result:
+pluginId: gate@personal
+version: 0.2.0
+installed: true
+enabled: true
+installedPath: C:\Users\Gathu\.codex\plugins\cache\personal\gate\0.2.0
+
+WSL 2 installation command:
+/home/gathu/.local/share/gate-demo/gate-plugin-venv/bin/python \
+  /mnt/c/Users/Gathu/Projects/gate/.worktrees/gate-codex-plugin/scripts/install_plugin.py \
+  --source /mnt/c/Users/Gathu/Projects/gate/.worktrees/gate-codex-plugin
+
+WSL result:
+pluginId: gate@personal
+version: 0.2.0
+installed: true
+enabled: true
+installedPath: /home/gathu/.codex/plugins/cache/personal/gate/0.2.0
+
+Installed package checks:
+LICENSE contains GNU GENERAL PUBLIC LICENSE.
+NOTICE is present.
+
+Installed WSL doctor output:
+GATE_DOCTOR_REPO /home/gathu/gate-video-code/iniconfig-gate-plugin
+GATE_DOCTOR_PYTHON /home/gathu/.local/share/gate-demo/gate-plugin-venv/bin/python (3.12.3)
+GATE_DOCTOR_CODEX /home/gathu/.local/bin/codex (codex-cli 0.144.6)
+GATE_DOCTOR_VERIFIER isolated pytest
+GATE_DOCTOR_STATE_HOME /home/gathu/.local/state/gate
+GATE_DOCTOR_OK
+
+Installed WSL audit output:
+VALID: 4 records, root 5241d2d1e9ea87699c52333d7b8c16db8b6bbda961e9921c831992cb178c186b
+
+All commands exited 0. Native Windows `$gate:doctor` and `$gate:run` remain
+intentionally fail closed; the successful coding workflow is WSL 2.

@@ -37,9 +37,9 @@ def test_manifest_identifies_gate_and_only_bundles_skills():
     manifest = load_manifest()
 
     assert manifest["name"] == "gate"
-    assert manifest["version"] == "0.1.0"
+    assert manifest["version"] == "0.2.0"
     assert manifest["skills"] == "./skills/"
-    assert manifest["license"] == "MIT"
+    assert manifest["license"] == "GPL-3.0-or-later"
     assert {"hooks", "mcpServers", "apps"}.isdisjoint(manifest)
 
 
@@ -140,6 +140,11 @@ def test_copy_plugin_uses_allowlist_and_excludes_repo_and_cache_content(tmp_path
     assert (destination / "gate.py").is_file()
     assert (destination / "gatelib" / "session.py").is_file()
     assert (destination / "skills" / "run" / "SKILL.md").is_file()
+    assert (destination / "LICENSE").is_file()
+    assert (destination / "NOTICE").is_file()
+    notice = (destination / "NOTICE").read_text(encoding="utf-8")
+    assert "GPLv3 section 7(b)" in notice
+    assert "originally developed by Yashwanth Gathuku" in notice
     assert not (destination / ".git").exists()
     assert not (destination / "tests").exists()
     assert not list(destination.rglob("__pycache__"))
@@ -306,7 +311,7 @@ def test_readme_documents_complete_plugin_workflow_and_platform_boundary():
 
     for required in (
         "## Codex plugin",
-        "python3 scripts/install_plugin.py",
+        '"$GATE_PYTHON" scripts/install_plugin.py',
         "$gate:doctor",
         "$gate:run",
         "$gate:audit",
@@ -317,6 +322,8 @@ def test_readme_documents_complete_plugin_workflow_and_platform_boundary():
         "## Choose an interface",
         "Standalone CLI",
         "docs/demo/README.md",
+        "docs/PLUGIN_GUIDE.md",
+        "GPL-3.0-or-later",
     ):
         assert required in readme
 
