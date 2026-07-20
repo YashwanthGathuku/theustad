@@ -75,6 +75,13 @@ def ensure_supported_platform(*, os_name: str | None = None) -> None:
         )
 
 
+def current_python() -> Path:
+    python = Path(os.path.abspath(sys.executable))
+    if not python.is_file():
+        raise PluginError(f"current Python executable does not exist: {python}")
+    return python
+
+
 def resolve_repo(repo: Path | None, *, cwd: Path | None = None) -> Path:
     candidate = Path.cwd() if repo is None and cwd is None else (cwd if repo is None else repo)
     if candidate is None:
@@ -168,7 +175,7 @@ def doctor(
         raise PluginError("Gate requires Python 3.10 or newer")
 
     target = Path(repo).resolve(strict=True)
-    python = Path(sys.executable).resolve(strict=True)
+    python = current_python()
     codex_value = which("codex")
     if codex_value is None:
         raise PluginError("Codex CLI was not found on PATH")
@@ -238,7 +245,7 @@ def build_gate_argv(
     max_retries: int,
 ) -> list[str]:
     argv = [
-        str(Path(sys.executable).resolve()),
+        str(current_python()),
         str(PLUGIN_ROOT / "gate.py"),
         "--repo",
         str(repo),
@@ -296,7 +303,7 @@ def run_gate(
 
 def build_audit_argv(log_path: Path) -> list[str]:
     return [
-        str(Path(sys.executable).resolve()),
+        str(current_python()),
         str(PLUGIN_ROOT / "verify_chain.py"),
         str(log_path),
     ]

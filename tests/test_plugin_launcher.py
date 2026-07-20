@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from argparse import Namespace
@@ -222,11 +223,39 @@ def test_gate_argv_uses_absolute_python_plugin_core_and_state_dir(tmp_path):
     )
 
     assert Path(argv[0]).is_absolute()
-    assert Path(argv[0]) == Path(sys.executable).resolve()
+    assert Path(argv[0]) == Path(os.path.abspath(sys.executable))
     assert Path(argv[1]) == PLUGIN_ROOT / "gate.py"
     assert argv[argv.index("--state-dir") + 1] == str(state)
     assert argv[argv.index("--log") + 1] == str(state / "logs")
     assert "repo with spaces" in argv[argv.index("--repo") + 1]
+
+
+def test_launcher_preserves_virtualenv_python_path_without_resolving(
+    tmp_path, monkeypatch
+):
+    executable = Path(sys.executable)
+    original_resolve = Path.resolve
+
+    def guarded_resolve(path, *args, **kwargs):
+        if path == executable:
+            raise AssertionError("current Python launcher was resolved")
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", guarded_resolve)
+
+    gate_argv = build_gate_argv(
+        repo=tmp_path / "repo",
+        task_path=tmp_path / "task.md",
+        state_dir=tmp_path / "state",
+        verifier=None,
+        timeout=60,
+        max_retries=1,
+    )
+    audit_argv = build_audit_argv(tmp_path / "audit.jsonl")
+
+    expected = os.path.abspath(sys.executable)
+    assert gate_argv[0] == expected
+    assert audit_argv[0] == expected
 
 
 def test_custom_verifier_is_forwarded_as_one_argument(tmp_path):
@@ -342,7 +371,7 @@ def test_audit_uses_bundled_verify_chain_and_passes_exit_code(tmp_path):
     assert result == 9
     argv, cwd = calls[0]
     assert argv == build_audit_argv(log.resolve())
-    assert Path(argv[0]) == Path(sys.executable).resolve()
+    assert Path(argv[0]) == Path(os.path.abspath(sys.executable))
     assert Path(argv[1]) == PLUGIN_ROOT / "verify_chain.py"
     assert cwd == PLUGIN_ROOT
 
