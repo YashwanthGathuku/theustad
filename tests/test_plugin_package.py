@@ -314,8 +314,28 @@ def test_readme_documents_complete_plugin_workflow_and_platform_boundary():
         "Linux, macOS, or WSL 2",
         "Native Windows",
         "separate Gate-controlled child",
+        "## Choose an interface",
+        "Standalone CLI",
+        "docs/demo/README.md",
     ):
         assert required in readme
+
+
+def test_real_project_demo_documents_both_interfaces_and_honesty_boundaries():
+    demo = (ROOT / "docs" / "demo" / "README.md").read_text(encoding="utf-8")
+
+    for required in (
+        "pytest-dev/iniconfig",
+        "77db208ab4ae0cd2061d909fe222a1db72867850",
+        "human-authored acceptance test",
+        "$gate:doctor",
+        "$gate:run",
+        "$gate:audit",
+        "gate.py --repo",
+        "Linux, macOS, or WSL 2",
+        "not an existing upstream issue",
+    ):
+        assert required in demo
 
 
 def test_plugin_evidence_records_validation_installation_and_fresh_skill_run():
@@ -326,6 +346,9 @@ def test_plugin_evidence_records_validation_installation_and_fresh_skill_run():
     skill_audit = (evidence / "plugin_skill_audit.txt").read_text(
         encoding="utf-8"
     )
+    real_demo = (evidence / "real_project_demo_prep.txt").read_text(
+        encoding="utf-8"
+    )
 
     assert "Exit code: 0" in validation
     assert "Plugin validation passed" in validation
@@ -334,6 +357,8 @@ def test_plugin_evidence_records_validation_installation_and_fresh_skill_run():
     assert "DOCTOR_EXIT 2" in installation
     assert "Thread: 019f80bd-68ce-7452-b995-a3f708981852" in skill_audit
     assert "Validator exit code: 0" in skill_audit
+    assert "1 failed, 49 passed" in real_demo
+    assert "SUPPORTED_GATE_RUN NOT RUN" in real_demo
 
     expected_root = (
         "200042504cd90869d2bc8edcd60278049e231ead88ae69a60919a64a335d4a20"

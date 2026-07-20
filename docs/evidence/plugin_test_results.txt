@@ -11,8 +11,8 @@ python -m pytest tests -q
 Exit code: 0
 
 Output:
-20 passed, 1 skipped in 0.98s
-151 passed, 4 skipped in 35.60s
+21 passed, 1 skipped in 1.06s
+152 passed, 4 skipped in 33.39s
 
 Three native Windows skips cover pre-existing POSIX-only process-group and
 symlink behavior. The fourth is the installer's real directory-symlink

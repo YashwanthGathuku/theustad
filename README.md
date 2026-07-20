@@ -8,7 +8,8 @@ SHA-256 chained audit log.
 ## OpenAI Build Week submission
 
 - Devpost: https://devpost.com/software/gate-0lypv2
-- Demo video: https://youtu.be/kGGdz649zCQ
+- Current deterministic-fixture demo: https://youtu.be/kGGdz649zCQ
+- Real-project replacement recording: [`docs/demo/README.md`](docs/demo/README.md)
 - Permanent release evidence: [`docs/evidence`](docs/evidence)
 - Anchored rehearsal root:
   `200042504cd90869d2bc8edcd60278049e231ead88ae69a60919a64a335d4a20`
@@ -22,7 +23,23 @@ SHA-256 chained audit log.
 - Runtime code uses only the Python standard library. Pytest is the development
   and default verifier dependency.
 
-## Installation
+## Choose an interface
+
+Gate has two invocation paths. They package the same `gate.py` and `gatelib/`
+core and produce the same verdicts and audit-chain format.
+
+| Interface | Best for | Entry point |
+|---|---|---|
+| **Codex plugin** | Developers working inside Codex who want named commands and automatic external state paths | `$gate:doctor`, `$gate:run`, `$gate:audit` |
+| **Standalone CLI** | CI, shell automation, security review, and environments that do not install Codex plugins | `python gate.py --repo ... --task ...` |
+
+The plugin is a convenience and adoption layer, not a second verifier. It
+delegates security-sensitive work to the bundled standalone core. Use either
+interface for a run; do not launch both against the same working tree at once.
+
+## Standalone CLI
+
+Create an environment in a Linux, macOS, or WSL 2 shell and run the tests:
 
 ```bash
 python3 -m venv .venv
@@ -30,6 +47,18 @@ source .venv/bin/activate
 python -m pip install --upgrade pip pytest
 python -m pytest tests -q
 ```
+
+Then run Gate against a Git repository and an explicit task file:
+
+```bash
+python /absolute/path/to/gate/gate.py \
+  --repo /absolute/path/to/project \
+  --task /absolute/path/to/task.md
+```
+
+Gate prints `FINAL`, `AUDIT_LOG`, and `AUDIT_ROOT`. Only exit code `0` with
+`FINAL VERIFIED` is success. Validate the emitted log independently with
+`verify_chain.py` as shown under [Audit verification](#audit-verification).
 
 ## Codex plugin
 
@@ -82,6 +111,16 @@ For judging, install the plugin, run `$gate:doctor`, start one real task through
 adversarial rehearsal below remains the repeatable proof of
 `FALSIFIED -> TAMPERED -> VERIFIED`; the plugin workflow demonstrates that the
 same Gate core is installable and usable from an active developer project.
+
+## Real-project recording demo
+
+The recording walkthrough uses the real
+[`pytest-dev/iniconfig`](https://github.com/pytest-dev/iniconfig) repository at
+a pinned commit with a human-authored acceptance test. It includes separate,
+copy-paste paths for the Codex plugin and original standalone CLI, plus a
+two-minute shot list and honesty labels:
+
+[`docs/demo/README.md`](docs/demo/README.md)
 
 For a clean checkout, give the target fixture its own Git history before a
 live Codex run:

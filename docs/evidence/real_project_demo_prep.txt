@@ -1,0 +1,34 @@
+Gate real-project recording preparation
+Date: 2026-07-20
+
+Target repository:
+https://github.com/pytest-dev/iniconfig
+
+Pinned upstream commit:
+77db208ab4ae0cd2061d909fe222a1db72867850
+
+Local baseline commit containing the human-authored acceptance test:
+3e5c24d demo: add human acceptance test
+
+Trusted environment:
+Python 3.13
+iniconfig 2.3.1.dev6+g3e5c24dc0
+pytest 9.1.1
+
+Baseline command:
+<external-venv-python> -I -B -m pytest -q
+
+Baseline exit code: 1
+
+Baseline output:
+F.................................................                       [100%]
+FAILED testing/test_gate_demo_acceptance.py::test_lengths_report_sections_and_section_entries
+TypeError: object of type 'IniConfig' has no len()
+1 failed, 49 passed in 0.68s
+
+SUPPORTED_GATE_RUN NOT RUN
+
+Reason: this workstation has no installed WSL distribution and no Docker or
+Podman runtime. Native Windows is not a supported Gate run environment. The
+prepared target is retained at its failing baseline for recording from Linux,
+macOS, or WSL 2.

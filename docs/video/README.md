@@ -10,6 +10,12 @@
 The judge-accessible YouTube upload is:
 https://youtu.be/kGGdz649zCQ
 
+This is the original deterministic-fixture submission video. The replacement
+real-project recording should follow [`../demo/README.md`](../demo/README.md),
+using the pinned `pytest-dev/iniconfig` repository and the installed Codex
+plugin. Keep this video and hash unchanged until the replacement has been run
+on Linux, macOS, or WSL 2 and independently checked.
+
 The video states that the fake agent makes the rehearsal deterministic while
 the edits, deleted test, pytest executions, Gate verdicts, and audit chain are
 real. It also identifies the separate live Codex run and its independently

@@ -46,6 +46,7 @@ Linux with Python 3.10 and 3.13.
 - Personal marketplace installation and installed-runtime checks:
   `plugin_install.txt`
 - Fresh Codex `$gate:audit` invocation: `plugin_skill_audit.txt`
+- Real-project recording preparation: `real_project_demo_prep.txt`
 - Fresh Codex thread: `019f80bd-68ce-7452-b995-a3f708981852`
 - Installed audit exit code: `0`
 - Installed audit root:
