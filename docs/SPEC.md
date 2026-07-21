@@ -1,18 +1,18 @@
-# GATE v2 — Build Specification
+# TheUstad 1.0 — v2 Security Contract
 
 **One-liner:** A verification-and-retry runtime for coding agents. The
 agent cannot grade its own homework—or remove the trusted homework.
 
-**Positioning:** Gate is an anti-reward-hacking harness for `codex
+**Positioning:** TheUstad is an anti-reward-hacking harness for `codex
 exec`. It observes explicit completion claims at turn boundaries,
-runs a Gate-controlled verifier using protected inputs and a trusted
+runs a TheUstad-controlled verifier using protected inputs and a trusted
 executable, returns failures to the same Codex session, and emits an
 externally anchorable audit chain.
 
 This is a hackathon-scoped defense against common repository-level
 tampering. It is not a security boundary against a hostile operating
 system user, kernel compromise, or malicious human controlling both
-Gate and the machine.
+TheUstad and the machine.
 
 Author: Yashwanth Gathuku. The claim lexicon and verification rules
 derive from his `evidence-gate` agent-discipline work. Any public
@@ -23,9 +23,9 @@ lineage claim in the submission must include a dated, working link.
 ## 1. Supported platform
 
 - Python 3.10 or newer.
-- Linux and macOS are supported for this build.
-- On Windows, run Gate inside WSL 2. Native Windows process-tree
-  termination is roadmap work and must not be claimed as supported.
+- Linux, macOS, and WSL 2 are supported for this build.
+- Native Windows `doctor` and `run` fail closed. Native Windows
+  process-tree termination must not be claimed as supported.
 - Runtime code uses only the Python standard library.
 - Development dependency: pytest.
 
@@ -35,7 +35,7 @@ Each demonstrated attack becomes a tested requirement.
 
 | ID | Attack | Required defense |
 |---|---|---|
-| T1 | Agent runs only a narrow test, makes a full completion claim, and breaks another module | Gate runs the configured full verifier after the turn |
+| T1 | Agent runs only a narrow test, makes a full completion claim, and breaks another module | TheUstad runs the configured full verifier after the turn |
 | T2 | Agent edits or deletes a trusted baseline test | Freeze protected inputs before round 1; detect, log `TAMPERED`, restore, and resume with the diff |
 | T3 | “I am not done” or a question is classified as completion | Inspect only the final agent message; suppress questions, negations, and progress language |
 | T4 | Agent process crashes while stale tests are green | Nonzero agent exit becomes `AGENT_ERROR`; verifier success cannot override it |
@@ -43,16 +43,16 @@ Each demonstrated attack becomes a tested requirement.
 | T6 | A log line is edited after the run | Hash-chain records and anchor the final root outside the log, such as a pushed Git commit and Devpost text |
 | T7 | Agent poisons pytest discovery/configuration | Protect pytest configuration and conftest files, including newly added protected paths |
 | T8 | Agent plants `pytest.py` or `pytest/` so `python -m pytest` executes the fake verifier | Use an absolute trusted interpreter with `-I`, never `shell=True` by default, protect shadowing paths, and test the attack |
-| T9 | A background child changes protected files after Gate checks them | Put the agent in a process group, terminate the full group, and check the manifest immediately before and after verification |
+| T9 | A background child changes protected files after TheUstad checks them | Put the agent in a process group, terminate the full group, and check the manifest immediately before and after verification |
 | T10 | Agent or verifier hangs | Enforce timeouts; terminate process groups; return explicit timeout evidence |
 
 Out of threat model, documented honestly:
 
 - Application code can deliberately detect tests or terminate the test
-  process. Gate reduces repository-level tampering; it does not make a
+  process. TheUstad reduces repository-level tampering; it does not make a
   weak oracle strong.
 - A hostile human or same-user process outside the Codex sandbox can
-  attack Gate state.
+  attack TheUstad state.
 - Kernel-level interference.
 - Legitimate edits to protected baseline tests. In v2, baseline tests
   are immutable by policy. A later version may run agent-authored tests
@@ -63,13 +63,13 @@ Out of threat model, documented honestly:
 ## 3. Architecture and layout
 
 ```text
-gate.py (CLI + round loop)
-  ├── gatelib/events.py     JSONL adapters and thread id
-  ├── gatelib/claims.py     final-message completion classifier
-  ├── gatelib/freezer.py    protected manifest, snapshot, diff, restore
-  ├── gatelib/verifier.py   trusted argv execution and timeout
-  ├── gatelib/session.py    spawn/resume, streaming, process group
-  └── gatelib/chain.py      SHA-256 hash chain
+theustad.py (CLI + round loop)
+  ├── theustadlib/events.py     JSONL adapters and thread id
+  ├── theustadlib/claims.py     final-message completion classifier
+  ├── theustadlib/freezer.py    protected manifest, snapshot, diff, restore
+  ├── theustadlib/verifier.py   trusted argv execution and timeout
+  ├── theustadlib/session.py    spawn/resume, streaming, process group
+  └── theustadlib/chain.py      SHA-256 hash chain
 
 codex exec --json
   → final claim
@@ -83,9 +83,11 @@ codex exec --json
 Required project layout after implementation:
 
 ```text
-gate/
-├── gate.py
-├── gatelib/
+theustad/
+├── .codex-plugin/
+│   └── plugin.json
+├── theustad.py
+├── theustadlib/
 │   ├── __init__.py
 │   ├── events.py
 │   ├── claims.py
@@ -94,6 +96,15 @@ gate/
 │   ├── session.py
 │   └── chain.py
 ├── verify_chain.py
+├── scripts/
+│   ├── theustad_plugin.py
+│   ├── install_plugin.py
+│   └── build_plugin_assets.py
+├── skills/
+│   ├── doctor/SKILL.md
+│   ├── run/SKILL.md
+│   └── audit/SKILL.md
+├── assets/
 ├── fake_codex.py
 ├── tests/
 ├── demo_repo/
@@ -104,6 +115,16 @@ gate/
 │   └── RUNBOOK.md
 └── README.md
 ```
+
+### 3.1 TheUstad 1.x compatibility boundary
+
+Gate-named entry points are deprecated adapters through TheUstad 1.x and are
+scheduled for removal in 2.0. `gate.py` forwards to `theustad.py`, `gatelib`
+forwards to `theustadlib`, and the optional `compat/gate-plugin/` package
+forwards to the canonical `theustad@personal` installation. `GATE_STATE_HOME`
+and `GATE_PYTHON` are accepted only when their `THEUSTAD_*` equivalents are
+absent; canonical variables take precedence. These adapters contain no second
+runtime implementation or security logic.
 
 ## 4. Module contracts
 
@@ -147,7 +168,7 @@ gate/
 | “I am working on it.” | no |
 | “Parser tests pass, but the task is not complete.” | no |
 
-The classifier is a deterministic heuristic, not semantic proof. Gate
+The classifier is a deterministic heuristic, not semantic proof. TheUstad
 verifies only the configured invariant, not every possible meaning in
 the agent's prose.
 
@@ -158,7 +179,7 @@ the agent's prose.
   newly added protected paths.
 - `restore(repo, manifest)` restores originals and removes planted
   protected paths.
-- Snapshot location must be under Gate's `--state-dir`, outside the
+- Snapshot location must be under TheUstad's `--state-dir`, outside the
   target repository and the Codex writable Git root. Refuse a
   `state_dir` contained by `repo`.
 - Record file type and SHA-256. Do not follow repository symlinks when
@@ -236,17 +257,18 @@ codex exec resume --json <thread_id> <message>
   commit and submission text.
 - HMAC/signing is a roadmap item, not a v2 completion requirement.
 
-### 4.7 `gate.py`
+### 4.7 `theustad.py`
 
 CLI:
 
 ```text
-gate.py --repo PATH [--task STR|FILE]
-        [--cmd STR] [--resume-cmd STR]
-        [--verifier STR] [--protect PATTERN ...]
-        [--state-dir PATH]
-        [--max-retries 3] [--timeout 600]
-        [--log PATH] [--no-color]
+theustad.py --repo PATH [--task STR|FILE]
+            [--cmd STR] [--resume-cmd STR]
+            [--verifier STR] [--protect PATTERN ...]
+            [--protect-add PATTERN ...]
+            [--state-dir PATH]
+            [--max-retries 3] [--timeout 600]
+            [--log PATH] [--no-color]
 ```
 
 Round order:
@@ -281,10 +303,10 @@ Round order:
 `demo3` is a deterministic adversarial rehearsal:
 
 - Round 1: naive parser fix, narrow parser tests pass, completion claim;
-  Gate returns `FALSIFIED` after the full suite fails.
+  TheUstad returns `FALSIFIED` after the full suite fails.
 - Round 2: scripted agent deletes `tests/test_invoice.py`; local pytest
-  is genuinely green; Gate returns `TAMPERED` and restores it.
-- Round 3: proper invoice fix and full tests; Gate returns `VERIFIED`.
+  is genuinely green; TheUstad returns `TAMPERED` and restores it.
+- Round 3: proper invoice fix and full tests; TheUstad returns `VERIFIED`.
 
 Also implement `naive2` and `crash`. The README and video must label
 `demo3` as scripted adversarial rehearsal, followed by a real Codex
@@ -302,7 +324,7 @@ Keep the supplied parser/invoice fixture unchanged at seed:
 
 ---
 
-## 5. Gate's own acceptance suite
+## 5. TheUstad's own acceptance suite
 
 Required tests:
 

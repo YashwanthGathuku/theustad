@@ -1,8 +1,8 @@
-# GATE v2 — Codex Prompt Sequence
+# TheUstad 1.0 — Codex Prompt Sequence
 
 Use this sequence with `docs/SPEC.md` and `docs/RUNBOOK.md`. Prompts
 0–7 belong in one Codex session using GPT-5.6. Prompt 8 runs from a
-separate terminal because Gate will itself spawn `codex exec`.
+separate terminal because TheUstad will itself spawn `codex exec`.
 
 Rules for the build session:
 
@@ -17,7 +17,7 @@ Rules for the build session:
 ## Workspace before Prompt 0
 
 ```text
-gate/
+theustad/
 ├── START_HERE.md
 ├── CODEX_HANDOFF.md
 ├── docs/
@@ -30,7 +30,7 @@ gate/
 └── .git/
 ```
 
-The v1 `gate.py` and v1 `fake_codex.py` must remain outside this
+The legacy implementation and v1 `fake_codex.py` must remain outside this
 workspace. They are private review references, not implementation
 inputs.
 
@@ -42,7 +42,7 @@ inputs.
 Read docs/SPEC.md, docs/PROMPTS.md, and docs/RUNBOOK.md fully. Do not
 write implementation code yet.
 
-We are building Gate v2 for OpenAI Build Week using GPT-5.6. First
+We are building TheUstad 1.0 for OpenAI Build Week using GPT-5.6. First
 resolve every item in SPEC §7 with command evidence.
 
 1. Run and paste:
@@ -85,8 +85,8 @@ implementation module exists yet.
 ## Prompt 1 — Package scaffold and JSONL events
 
 ```text
-Per SPEC §3 and §4.1, create the gatelib package scaffold and implement
-gatelib/events.py completely: parse_line, extract_agent_text,
+Per SPEC §3 and §4.1, create the theustadlib package scaffold and implement
+theustadlib/events.py completely: parse_line, extract_agent_text,
 extract_thread_id, and describe.
 
 Write tests/test_events.py covering all documented schemas, string and
@@ -102,7 +102,7 @@ complete output. Show `git diff --stat`.
 ## Prompt 2 — Completion claims
 
 ```text
-Per SPEC §4.2, implement gatelib/claims.py and tests/test_claims.py.
+Per SPEC §4.2, implement theustadlib/claims.py and tests/test_claims.py.
 Use only the final agent message supplied by the orchestrator. Do not
 treat standalone “working” or progress language as completion.
 
@@ -122,8 +122,8 @@ the output. Show `git diff --stat`.
 ## Prompt 3 — Protected-input freezer
 
 ```text
-Per SPEC §4.3, implement gatelib/freezer.py. The snapshot must live
-under an explicit Gate-owned state_dir outside the target repository;
+Per SPEC §4.3, implement theustadlib/freezer.py. The snapshot must live
+under an explicit TheUstad-owned state_dir outside the target repository;
 refuse a state_dir inside the repo. Handle files without following
 protected repository symlinks.
 
@@ -147,7 +147,7 @@ is outside the target repo.
 ## Prompt 4 — Audit chain
 
 ```text
-Per SPEC §4.6, implement gatelib/chain.py while keeping byte
+Per SPEC §4.6, implement theustadlib/chain.py while keeping byte
 compatibility with the existing verify_chain.py oracle. Do not add
 HMAC or signing; external root anchoring is the v2 design.
 
@@ -165,8 +165,8 @@ output.
 ## Prompt 5 — Trusted verifier and agent session
 
 ```text
-Per SPEC §4.4 and §4.5, implement gatelib/verifier.py and
-gatelib/session.py using the CLI forms verified in Prompt 0.
+Per SPEC §4.4 and §4.5, implement theustadlib/verifier.py and
+theustadlib/session.py using the CLI forms verified in Prompt 0.
 
 Verifier requirements:
   - argv list and shell=False;
@@ -198,7 +198,7 @@ and paste the complete output.
 ## Prompt 6 — Orchestrator and verdict semantics
 
 ```text
-Per SPEC §4.7, implement gate.py. Follow the round order exactly:
+Per SPEC §4.7, implement theustad.py. Follow the round order exactly:
 agent process group stopped -> tamper check/restore -> agent exit
 check -> classify final message -> pre-verifier tamper check -> trusted
 verifier -> post-verifier tamper check -> verdict.
@@ -213,7 +213,7 @@ Include a race test in which a protected file changes between the
 pre-verifier and post-verifier checks and must become TAMPERED.
 
 Acceptance: run `python -m pytest tests -q` and paste the full output.
-Then show `python gate.py --help`.
+Then show `python theustad.py --help`.
 ```
 
 ---
@@ -228,7 +228,7 @@ only the agent reasoning is scripted.
 Create the seeded reset snapshot from the untouched demo_repo before
 the first rehearsal mutation. Add tests/test_e2e_rehearsal.py that:
   - resets the fixture;
-  - runs demo3 through Gate;
+  - runs demo3 through TheUstad;
   - asserts FALSIFIED -> TAMPERED -> VERIFIED in order;
   - verifies the deleted invoice test was restored;
   - asserts final exit 0;
@@ -263,8 +263,8 @@ git tag core-built-in-codex
 Run this from a separate terminal, outside the Prompt 0–7 build chat:
 
 ```bash
-cd gate
-python gate.py --repo demo_repo --task task.md
+cd theustad
+python theustad.py --repo demo_repo --task task.md
 ```
 
 Accept either real outcome:

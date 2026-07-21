@@ -1,4 +1,4 @@
-# GATE v2 — Build and Submission Runbook
+# TheUstad 1.0 — Build and Submission Runbook
 
 Schedule: Friday July 17 through Tuesday July 21, 2026.
 
@@ -23,7 +23,7 @@ the available ChatGPT plan or API credits. Do not change product scope.
 The starter intentionally contains only:
 
 ```text
-gate-v2-codex-starter/
+theustad/
 ├── START_HERE.md
 ├── CODEX_HANDOFF.md
 ├── docs/
@@ -35,8 +35,8 @@ gate-v2-codex-starter/
 └── verify_chain.py
 ```
 
-The old `gate.py`, old `fake_codex.py`, and temporary red-team attack
-scripts are intentionally excluded. They are evidence and private diff
+The legacy implementation files, old `fake_codex.py`, and temporary red-team
+attack scripts are intentionally excluded. They are evidence and private diff
 references, not inputs to the compliant Codex implementation.
 
 ## 2. Prepare the workspace
@@ -44,7 +44,7 @@ references, not inputs to the compliant Codex implementation.
 From a Linux, macOS, or WSL 2 shell:
 
 ```bash
-cd gate-v2-codex-starter
+cd theustad
 python3 --version
 git --version
 codex --version
@@ -88,7 +88,7 @@ python -m pytest demo_repo/tests -q
 ```
 
 That command intentionally exits nonzero. Do not repair the fixture
-manually; Gate's rehearsal agents need it.
+manually; TheUstad's rehearsal agents need it.
 
 ## 3. Start the compliant Codex build
 
@@ -132,14 +132,14 @@ Use `docs/PROMPTS.md` in order. For every prompt:
 
 Keep Prompts 0–7 in the same session so the required `/feedback` record
 covers the core build. Prompt 8 is deliberately launched from a second
-terminal because Gate itself starts `codex exec`.
+terminal because TheUstad itself starts `codex exec`.
 
 ## 5. Day-by-day exit conditions
 
 | Day | Work | Do not stop until |
 |---|---|---|
 | Fri Jul 17 | Form, setup, Prompts 0–2 | schema sample and build evidence exist; event and claim tests pass |
-| Sat Jul 18 | Prompts 3–6 | the complete Gate unit suite passes |
+| Sat Jul 18 | Prompts 3–6 | the complete TheUstad unit suite passes |
 | Sun Jul 19 | Prompt 7 and Prompt 8 | rehearsal records `FALSIFIED → TAMPERED → VERIFIED`; one live Codex run finishes |
 | Mon Jul 20 | README, video, public repo, Devpost draft | video plays; repo instructions work from clean setup; audit root is externally anchored |
 | Tue Jul 21 | Buffer and submission | Devpost shows submitted before the deadline |
@@ -155,7 +155,7 @@ Keep these artifacts before recording:
 
 - `docs/schema_samples.jsonl` from the installed Codex CLI.
 - `docs/BUILD_EVIDENCE.md` with Codex version and GPT-5.6 selection.
-- Complete Gate test output.
+- Complete TheUstad test output.
 - A rehearsal audit containing `FALSIFIED`, `TAMPERED`, and `VERIFIED`.
 - One live `codex exec` audit.
 - The `/feedback` session ID from the Prompt 0–7 build session.
@@ -170,17 +170,17 @@ paths in these artifacts.
 Use a large terminal font and captions. Rehearse with the deterministic
 fake agent; label it plainly as an adversarial rehearsal.
 
-1. **Setup — 10 seconds.** “Coding agents claim done. Gate checks the
+1. **Setup — 10 seconds.** “Coding agents claim done. TheUstad checks the
    claim using protected evidence.” Show `task.md`.
 2. **False claim — 30 seconds.** The agent makes the obvious parser fix
-   and claims completion. Gate runs the full suite and records
+   and claims completion. TheUstad runs the full suite and records
    `FALSIFIED`, then returns the failing invoice evidence to the session.
 3. **Test deletion — 30 seconds.** The agent deletes the failing test
-   and gets green tests. Gate detects the protected-input change,
+   and gets green tests. TheUstad detects the protected-input change,
    records `TAMPERED`, restores the baseline, and returns the diff.
    “It cannot grade its own homework—or eat it.”
 4. **Honest fix — 25 seconds.** The agent repairs the compatibility
-   behavior; Gate records `VERIFIED`.
+   behavior; TheUstad records `VERIFIED`.
 5. **Audit — 15 seconds.** Verify the chain, show the anchored root, then
    verify a deliberately edited copy and show the break. Never edit the
    original evidence log.
@@ -212,8 +212,7 @@ Suggested provenance sentence:
 
 ## 9. Scope discipline
 
-Until Gate is submitted, new product ideas go in a parking note rather
+Until TheUstad is submitted, new product ideas go in a parking note rather
 than implementation. In particular, DeployGraph/Salesforce validation
-is a future verifier pack for Gate, not part of this build. The unlock
-condition is a completed Gate submission.
-
+is a future verifier pack for TheUstad, not part of this build. The unlock
+condition is a completed TheUstad submission.

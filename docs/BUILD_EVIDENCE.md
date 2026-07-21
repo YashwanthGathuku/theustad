@@ -1,4 +1,9 @@
-# Gate v2 Build Evidence
+# TheUstad 1.0 Build Evidence
+
+The dated command/output sections below predate the product rename and remain
+verbatim historical evidence. Their Gate-named paths, protocol samples, roots,
+and outcomes are indexed in `docs/evidence/LEGACY_GATE_EVIDENCE.md`; new
+TheUstad evidence is recorded separately under `docs/evidence/theustad-1.0/`.
 
 ## Prompt 0 environment
 
