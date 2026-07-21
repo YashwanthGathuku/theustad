@@ -31,6 +31,8 @@ result. `sha256sums.txt` covers every retained artifact in the matrix.
 
 - `plugin_app_install.txt` captures the current Windows Codex app installation,
   enabled readback, and zero retired-plugin matches.
+- `plugin_codex_audit.txt` captures a fresh `theustad:audit` Codex task using
+  the installed 1.0.0 skill and the exact validated audit root.
 - `plugin_install.txt`, `plugin_list.json`, and `plugin_doctor.txt` capture the
   isolated WSL installation and doctor readback.
 - `fresh_clone_validation.txt` captures a clean public-clone validation.

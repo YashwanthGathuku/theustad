@@ -1,0 +1,25 @@
+THEUSTAD 1.0 CODEX SKILL AUDIT EVIDENCE
+UTC 2026-07-21T09:02:35Z
+
+COMMAND
+codex exec --json '$theustad:audit Verify C:\Users\Gathu\Projects\theustad\docs\evidence\theustad-1.0\robustness\b3-1-audit.jsonl and report the exact validation result.'
+
+CODEX TASK
+Thread ID: 019f83e9-30ba-7280-a67d-c875a4e645c3
+Skill: theustad:audit
+Installed skill version: 1.0.0
+Codex process exit: 0
+
+VERIFIER OUTPUT
+VALID: 12 records, root d16ed29de2e6408f5ed1a520759caa1cdd40236f5006cc2f001ba9c7caf96aab
+Verifier exit: 0
+Verifier stderr: empty
+
+FINAL MESSAGE
+Codex relayed the exact VALID output, exit code 0, and the correct limitation:
+chain consistency is meaningful relative to an externally anchored root and
+does not imply signing, HMAC, or remote attestation.
+
+Codex also emitted unrelated model-cache, third-party marketplace, shell
+snapshot, and MCP-auth warnings after the turn. None affected skill discovery,
+the verifier process, its output, or its exit code.
