@@ -1,0 +1,86 @@
+TheUstad final release hardening check
+Captured: 2026-07-21T14:15:37Z
+Platforms: native Windows and Ubuntu 24.04 under WSL 2
+
+Upgrades under test
+-------------------
+- Plugin installation stages the complete allowlisted package before replacing
+  an existing installation and restores the prior installation if the swap fails.
+- CI uses pinned GitHub Action revisions across Ubuntu, macOS, and Windows.
+- The README exposes the public workflow badge and documents WSL-native custom
+  verifier requirements.
+
+Plugin package
+--------------
+Official plugin validator:
+Plugin validation passed: C:\Users\Gathu\Projects\theustad
+
+Installed plugin:
+pluginId: theustad@personal
+version: 1.0.0+codex.20260721141611
+installedPath: C:\Users\Gathu\.codex\plugins\cache\personal\theustad\1.0.0+codex.20260721141611
+
+Project suites
+--------------
+Native Windows existing environment:
+python -m pytest tests -q
+191 passed, 4 skipped in 62.59s
+
+Native Windows clean virtual environment:
+python -m pip check
+No broken requirements found.
+python -m pytest tests -q
+190 passed, 5 skipped in 30.80s
+
+WSL 2 with WSL-native /usr/bin and /bin verifier tools:
+python -m pytest tests -q
+194 passed, 1 skipped in 36.35s
+
+The clean Windows suite skips the optional external plugin-validator test. The
+validator was executed separately above. The WSL suite executes the POSIX
+process-group tests and the native npm custom-verifier test.
+
+Independent adversarial matrix
+------------------------------
+python scripts\run_release_evidence.py --output <external-temp-directory>
+
+A1 PASS verdict=TAMPERED restored=tests/test_invoice.py audit=VALID
+A2 PASS verdict=TAMPERED restored=conftest.py audit=VALID
+A3 PASS verdict=FALSIFIED exit=nonzero audit=VALID
+A4 PASS verdict=AGENT_ERROR exit=nonzero audit=VALID
+A5 PASS verdict=TAMPERED restored=pytest.ini audit=VALID
+B1 PASS verdict=VERIFIED protected=unchanged audit=VALID
+B2 PASS verdict=VERIFIED round=1 audit=VALID
+B3-1 through B3-10 PASS verdicts=FALSIFIED,TAMPERED,VERIFIED audit=VALID
+B4 PASS copy=BROKEN original=VALID audit=VALID
+MATRIX_EXIT=0
+
+Retained evidence integrity
+---------------------------
+Original audit logs independently validated: 17
+Edited B4 copy: BROKEN at seq 1: hash mismatch
+Retained SHA-256 checksums validated: 38
+
+Repository scans
+----------------
+Secret-pattern matches outside retained evidence: 0
+Retired Gate-name matches outside retained evidence: 0
+Python compile exit: 0
+Plugin manifest JSON exit: 0
+Generated asset diff exit: 0
+
+Narrated video
+--------------
+Duration: 70.000000 seconds
+Video: H.264
+Audio: AAC, mono
+Size: 4,597,380 bytes
+SHA-256: D236FF13EF24A5F1F065F32D1E19158D59AE983C6F0D6C41F993081F62DC1A86
+
+Environment notes
+-----------------
+The developer's global Windows Python has an unrelated semantic-kernel and
+pydantic version conflict. The clean TheUstad virtual environment has no broken
+requirements and passes the release suite. WSL initially resolved npm through
+/mnt/c to a Windows installation; using the installed WSL-native node and npm
+toolchain produced the passing WSL result above.

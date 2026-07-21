@@ -95,15 +95,40 @@ def _copy_package(
             raise InstallError(f"unsupported plugin package entry: {item}")
         package_items.append((name, item))
 
-    _remove_existing(target)
-    target.mkdir(parents=True, exist_ok=False)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = target.with_name(f".{target.name}.{uuid.uuid4().hex}.staging")
+    backup = target.with_name(f".{target.name}.{uuid.uuid4().hex}.backup")
+    staging.mkdir(exist_ok=False)
     ignore = shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache")
-    for name, item in package_items:
-        installed = target / name
-        if item.is_dir():
-            shutil.copytree(item, installed, ignore=ignore)
+    try:
+        for name, item in package_items:
+            installed = staging / name
+            if item.is_dir():
+                shutil.copytree(item, installed, ignore=ignore)
+            else:
+                shutil.copy2(item, installed)
+
+        had_target = target.is_symlink() or target.exists()
+        if had_target:
+            os.replace(target, backup)
+        try:
+            os.replace(staging, target)
+        except OSError as install_error:
+            if had_target:
+                try:
+                    os.replace(backup, target)
+                except OSError as restore_error:
+                    raise InstallError(
+                        "plugin replacement failed; the previous installation "
+                        f"is preserved at {backup}"
+                    ) from restore_error
+            raise install_error
         else:
-            shutil.copy2(item, installed)
+            if had_target:
+                _remove_existing(backup)
+    finally:
+        if staging.is_symlink() or staging.exists():
+            _remove_existing(staging)
 
 
 def copy_plugin(source: Path, destination: Path) -> None:

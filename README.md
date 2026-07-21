@@ -1,5 +1,7 @@
 # TheUstad
 
+[![Tests](https://github.com/YashwanthGathuku/theustad/actions/workflows/tests.yml/badge.svg)](https://github.com/YashwanthGathuku/theustad/actions/workflows/tests.yml)
+
 > **Codex says "done." TheUstad checks whether that is true.**
 
 TheUstad is a verification-and-retry runtime for coding agents. It treats an
@@ -150,6 +152,13 @@ The custom verifier is the acceptance oracle for that run. Protect all inputs
 it needs before starting; protected files are checked before and after
 verification, and changed inputs are restored and reported as `TAMPERED`.
 
+On WSL, make sure every custom-verifier executable is WSL-native before
+starting TheUstad. For example, check both `command -v node` and
+`command -v npm`, then inspect their real paths with `readlink -f`. A path under
+`/mnt/c` is a Windows tool and may be unable to verify a repository or temporary
+state held in the Linux filesystem. Fix the WSL `PATH` or install the Linux
+toolchain instead of treating that environment failure as a code verdict.
+
 ## Audit verification
 
 Every run reports an `AUDIT_LOG` and `AUDIT_ROOT`. Validate the exact emitted
@@ -204,6 +213,11 @@ ID are recorded in
 [`agpl_release_validation.txt`](docs/evidence/theustad-1.0/agpl_release_validation.txt).
 The earlier `$theustad:audit` chain-validation proof remains captured in
 [`plugin_codex_audit.txt`](docs/evidence/theustad-1.0/plugin_codex_audit.txt).
+
+The final transactional-installer and cross-platform CI hardening pass recorded
+`191 passed, 4 skipped` on native Windows and `194 passed, 1 skipped` on WSL
+with a WSL-native verifier toolchain. Its independent 18-scenario matrix exited
+`0`; see [`final_release_check.txt`](docs/evidence/theustad-1.0/final_release_check.txt).
 
 ### Three-minute video scope
 

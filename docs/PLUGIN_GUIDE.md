@@ -95,6 +95,12 @@ python theustad.py --repo /absolute/path/to/project \
 The custom verifier command is parsed as argv without a shell. A protected
 input changed by the agent is restored and reported as `TAMPERED`.
 
+On WSL, custom verifier tools must resolve to WSL-native executables. Check the
+real paths for the complete toolchain, such as both `node` and `npm`; a path
+under `/mnt/c` points to a Windows installation that may not be able to access
+Linux-only repository or state paths. Correct `PATH` or install the Linux
+toolchain before running `$theustad:doctor` or `$theustad:run`.
+
 ## Upgrade or remove
 
 Update an installed canonical package:

@@ -297,6 +297,29 @@ def test_copy_plugin_preserves_existing_install_when_source_is_incomplete(tmp_pa
     assert marker.read_text(encoding="utf-8") == "preserve"
 
 
+def test_copy_plugin_preserves_existing_install_when_staging_copy_fails(
+    tmp_path, monkeypatch
+):
+    installed = tmp_path / "home" / "plugins" / "theustad"
+    installed.mkdir(parents=True)
+    marker = installed / "working-install.txt"
+    marker.write_text("preserve", encoding="utf-8")
+    original_copy2 = shutil.copy2
+
+    def failing_copy2(source, destination, *args, **kwargs):
+        if Path(source).name == "theustad.py":
+            raise OSError("simulated package copy failure")
+        return original_copy2(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(shutil, "copy2", failing_copy2)
+
+    with pytest.raises(OSError, match="simulated package copy failure"):
+        copy_plugin(ROOT, installed)
+
+    assert marker.read_text(encoding="utf-8") == "preserve"
+    assert not list(installed.parent.glob(".theustad.*"))
+
+
 def test_update_marketplace_preserves_unrelated_plugins_and_top_level_keys(tmp_path):
     path = tmp_path / ".agents" / "plugins" / "marketplace.json"
     other = {

@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -19,6 +20,7 @@ def test_readme_uses_canonical_release_links_and_commands():
         "Linux, macOS, or WSL 2",
         "PASS_NO_CLAIM",
         "custom verifier",
+        "WSL-native",
         "AGPL-3.0-or-later",
     )
     for value in required:
@@ -38,3 +40,17 @@ def test_docs_state_honesty_boundaries():
     assert "deterministic scripted adversarial rehearsal" in text
     assert "explicit custom verifier" in text
     assert "automatic framework detection" not in text
+
+
+def test_ci_covers_supported_platforms_with_pinned_actions():
+    workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(
+        encoding="utf-8"
+    )
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    for runner in ("ubuntu-latest", "macos-latest", "windows-latest"):
+        assert runner in workflow
+    assert re.search(r"actions/checkout@[0-9a-f]{40}", workflow)
+    assert re.search(r"actions/setup-python@[0-9a-f]{40}", workflow)
+    assert "> /dev/null" not in workflow
+    assert "actions/workflows/tests.yml/badge.svg" in readme

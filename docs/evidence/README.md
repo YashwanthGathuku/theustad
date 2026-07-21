@@ -36,6 +36,9 @@ result. `sha256sums.txt` covers every retained artifact in the matrix.
 - `plugin_install.txt`, `plugin_list.json`, and `plugin_doctor.txt` capture the
   isolated WSL installation and doctor readback.
 - `fresh_clone_validation.txt` captures a clean public-clone validation.
+- `final_release_check.txt` captures the transactional installer, cross-platform
+  suites, independent adversarial matrix, retained-chain integrity, naming and
+  secret scans, and narrated-video probe from the final hardening pass.
 - `publication.txt` records the public repository, narrated video, Build Week
   submission metadata, feedback task ID, and externally anchored roots.
 - `video/` contains the final media probe, digest, and visual inspection frames.
