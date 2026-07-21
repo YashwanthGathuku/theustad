@@ -133,10 +133,8 @@ def test_official_plugin_validator_accepts_package():
         / "scripts"
         / "validate_plugin.py"
     )
-    if not validator.is_file():
-        pytest.skip("Codex plugin validator is not installed")
-    if importlib.util.find_spec("yaml") is None:
-        pytest.skip("Codex plugin validator dependency PyYAML is not installed")
+    if not validator.is_file() or importlib.util.find_spec("yaml") is None:
+        pytest.skip("Codex plugin validator or its PyYAML dependency is not installed")
 
     result = subprocess.run(
         [sys.executable, str(validator), str(ROOT)],
