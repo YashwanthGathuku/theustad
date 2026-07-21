@@ -64,7 +64,7 @@ Retained SHA-256 checksums validated: 38
 Repository scans
 ----------------
 Secret-pattern matches outside retained evidence: 0
-Retired Gate-name matches outside retained evidence: 0
+Retired-name matches outside retained evidence: 0
 Python compile exit: 0
 Plugin manifest JSON exit: 0
 Generated asset diff exit: 0
