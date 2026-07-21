@@ -1,0 +1,48 @@
+TheUstad AGPL release validation
+Captured: 2026-07-21T09:34:00Z
+Platform: native Windows
+
+LICENSE source:
+https://www.gnu.org/licenses/agpl-3.0.txt
+SHA-256: 0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0
+Header: GNU AFFERO GENERAL PUBLIC LICENSE, Version 3, 19 November 2007
+
+Command:
+python C:\Users\Gathu\.codex\skills\.system\plugin-creator\scripts\validate_plugin.py C:\Users\Gathu\Projects\theustad
+
+Result:
+Plugin validation passed: C:\Users\Gathu\Projects\theustad
+
+Command:
+python -m pytest tests -q
+
+Result:
+189 passed, 4 skipped in 42.98s
+
+Command:
+python scripts\install_plugin.py
+
+Result:
+pluginId: theustad@personal
+version: 1.0.0+codex.20260721093338
+installedPath: C:\Users\Gathu\.codex\plugins\cache\personal\theustad\1.0.0+codex.20260721093338
+manifest license: AGPL-3.0-or-later
+LICENSE SHA-256: 0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0
+NOTICE AGPL check: true
+README AGPL check: true
+
+Successful fresh Codex pickup before the final documentation-only cache refresh:
+Task ID: 019f8404-6e78-7233-b007-87288a9bb06c
+Skill: C:\Users\Gathu\.codex\plugins\cache\personal\theustad\1.0.0+codex.20260721092853\skills\doctor\SKILL.md
+Manifest version: 1.0.0+codex.20260721092853
+Manifest license: AGPL-3.0-or-later
+Exit code: 0
+
+The final package differs by the README evidence paragraph and its cachebuster.
+A fresh pickup attempt for 1.0.0+codex.20260721093338 started task
+019f8406-2e91-7df0-8d0b-8b063481f8b5 but was stopped by the Codex account usage
+limit before skill execution. Installation and direct cache validation passed.
+
+The documented release command targets tests/. Running pytest without that
+target also collects intentionally failing demo fixtures under demo_repo/ and
+docs/demo/; those fixtures are retained for TheUstad demonstrations.

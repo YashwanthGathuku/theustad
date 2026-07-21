@@ -19,7 +19,7 @@ def test_readme_uses_canonical_release_links_and_commands():
         "Linux, macOS, or WSL 2",
         "PASS_NO_CLAIM",
         "custom verifier",
-        "GPL-3.0-or-later",
+        "AGPL-3.0-or-later",
     )
     for value in required:
         assert value in text

@@ -196,11 +196,14 @@ behavior exercised by the complete WSL run. The B3/B4 original audit root is:
 d16ed29de2e6408f5ed1a520759caa1cdd40236f5006cc2f001ba9c7caf96aab
 ```
 
-The Codex app installation smoke test reported
-`1.0.0+codex.20260721091305` installed and enabled. A fresh Codex process then
-loaded `$theustad:audit` from that exact cache-busted package and validated the
-12-record chain above with exit code `0`. The captured Codex task ID is
-`019f83f4-58e2-7ab2-9e46-3ce269eb9356`.
+The AGPL release update added a license regression check; the native Windows
+suite then recorded `189 passed, 4 skipped`. A fresh Codex process loaded
+`$theustad:doctor` from the refreshed cache-busted package and independently
+reported `AGPL-3.0-or-later`. The exact package version and captured Codex task
+ID are recorded in
+[`agpl_release_validation.txt`](docs/evidence/theustad-1.0/agpl_release_validation.txt).
+The earlier `$theustad:audit` chain-validation proof remains captured in
+[`plugin_codex_audit.txt`](docs/evidence/theustad-1.0/plugin_codex_audit.txt).
 
 ### Three-minute video scope
 
@@ -234,9 +237,12 @@ guarantee absence of defects.
 
 ## License and attribution
 
-TheUstad is licensed under [GPL-3.0-or-later](LICENSE). Preserve the license,
+TheUstad is licensed under [AGPL-3.0-or-later](LICENSE). Preserve the license,
 copyright, source, and attribution notices described in [NOTICE](NOTICE) when
-redistributing modified copies.
+redistributing modified copies. If you run a modified version as a network
+service, GNU AGPL section 13 requires offering its Corresponding Source to users
+who interact with it remotely. Private use of an unmodified copy does not
+require a public endorsement or credit post.
 
 ## OpenAI Build Week
 

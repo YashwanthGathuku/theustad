@@ -3,10 +3,10 @@ Copyright (C) 2026 Yashwanth Gathuku
 
 Original project: https://github.com/YashwanthGathuku/theustad
 
-TheUstad is licensed under the GNU General Public License, version 3 or any later
-version (GPL-3.0-or-later).
+TheUstad is licensed under the GNU Affero General Public License, version 3 or
+any later version (AGPL-3.0-or-later).
 
-Additional attribution term under GPLv3 section 7(b): when conveying or
+Additional attribution term under GNU AGPLv3 section 7(b): when conveying or
 redistributing TheUstad or a modified version, preserve this reasonable author
 attribution in the accompanying legal notices:
 
@@ -15,8 +15,10 @@ attribution in the accompanying legal notices:
 
 Keep this NOTICE, the copyright notice, and the accompanying LICENSE file
 intact. Mark modified versions as changed and provide the corresponding source
-as required by the GPL.
+as required by the GNU AGPL. A modified version that supports remote network
+interaction must also offer its users the Corresponding Source as required by
+section 13.
 
-TheUstad identifies the current project. The GPL does not require
+TheUstad identifies the current project. The GNU AGPL does not require
 public endorsement or a public credit statement from someone who only runs an
 unmodified private copy.

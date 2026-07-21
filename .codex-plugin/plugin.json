@@ -1,13 +1,13 @@
 {
   "name": "theustad",
-  "version": "1.0.0+codex.20260721091305",
+  "version": "1.0.0+codex.20260721093338",
   "description": "Protected verification and retry for Codex coding tasks.",
   "author": {
     "name": "Yashwanth Gathuku"
   },
   "homepage": "https://github.com/YashwanthGathuku/theustad",
   "repository": "https://github.com/YashwanthGathuku/theustad",
-  "license": "GPL-3.0-or-later",
+  "license": "AGPL-3.0-or-later",
   "keywords": [
     "codex",
     "verification",
