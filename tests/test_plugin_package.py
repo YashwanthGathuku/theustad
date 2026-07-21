@@ -88,6 +88,13 @@ def test_run_skill_preserves_theustad_as_the_verdict_authority():
     assert "$theustad:run" in text
 
 
+def test_doctor_skill_relays_current_theustad_output_identifiers():
+    text = (ROOT / "skills" / "doctor" / "SKILL.md").read_text(encoding="utf-8")
+
+    assert "THEUSTAD_DOCTOR_*" in text
+    assert "THEUSTAD_PLUGIN_ERROR" in text
+
+
 def test_generated_png_assets_have_expected_dimensions(tmp_path):
     build_assets(tmp_path)
 

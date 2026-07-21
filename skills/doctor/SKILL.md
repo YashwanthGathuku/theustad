@@ -18,7 +18,7 @@ Run TheUstad's read-only prerequisite check without editing the target repositor
    ```
 
 4. Add `--verifier <command>` only when checking an explicit custom verifier.
-5. Relay every `GATE_DOCTOR_*` or `GATE_PLUGIN_ERROR` line exactly.
+5. Relay every `THEUSTAD_DOCTOR_*` or `THEUSTAD_PLUGIN_ERROR` line exactly.
 
 Do not bypass a native Windows rejection. TheUstad requires Linux, macOS, or WSL 2
 because its completion contract includes process-group termination.
