@@ -2,11 +2,29 @@
 
 ## Current TheUstad artifact
 
-`theustad-build-week-demo.mp4` is the pending/current Build Week artifact once
-generated and rendered. Until that file exists, this index intentionally makes
-no claim that a new TheUstad video has been recorded. The planned demonstration
-must label the deterministic scripted adversarial rehearsal as scripted and
-distinguish it from a live real-project run.
+The current Build Week render is the 70-second
+[`theustad-build-week-demo.mp4`](theustad-build-week-demo.mp4). It is produced by
+[`build_theustad_narrated_demo.ps1`](build_theustad_narrated_demo.ps1) from the
+raw desktop capture and its scene markers. It writes the H.264/AAC MP4,
+cue-matched English SRT, transcript, machine-readable probe, SHA-256 checksum,
+and fixed inspection frames under
+[`../evidence/theustad-1.0/video`](../evidence/theustad-1.0/video).
+
+The narration explicitly separates the real Codex control and plugin run from
+the deterministic scripted conftest-poisoning rehearsal. It states that
+`FINAL VERIFIED` is a protected verifier result rather than a universal code
+correctness claim, and identifies Codex and GPT-5.6 as the build tools.
+
+Render after recording with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File docs/video/build_theustad_narrated_demo.ps1
+```
+
+The build enforces the marker order, keeps every cue inside the edited source, maps
+one H.264 video stream and one AAC audio stream, rejects silent narration, and
+records the final probe and digest. The published candidate's SHA-256 is
+`D236FF13EF24A5F1F065F32D1E19158D59AE983C6F0D6C41F993081F62DC1A86`.
 
 ## Historical Gate recordings
 

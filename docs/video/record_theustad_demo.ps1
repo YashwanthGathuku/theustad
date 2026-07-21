@@ -10,6 +10,16 @@ $status = Join-Path $build "recording.status"
 $timeoutSeconds = 660
 $sceneOrder = @("intro", "control", "install", "plugin_start", "plugin_result", "tamper", "audit", "closing")
 
+function Convert-ToWslPath([string]$Path) {
+    if ($Path.StartsWith("/")) { return $Path }
+    $normalized = $Path.Replace("\", "/")
+    $converted = (& wsl.exe wslpath -a -u $normalized).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($converted)) {
+        throw "Could not convert path for WSL: $Path"
+    }
+    return $converted
+}
+
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 Remove-Item -LiteralPath $output, $markers, $done, $status -Force -ErrorAction SilentlyContinue
 
@@ -29,16 +39,32 @@ $capture.StartInfo.RedirectStandardInput = $true
 $capture.StartInfo.CreateNoWindow = $true
 [void]$capture.Start()
 
-$wslRepo = (& wsl.exe wslpath -a -u $repo).Trim()
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($wslRepo)) { throw "Could not resolve the repository inside WSL." }
+$wslRepo = Convert-ToWslPath $repo
 $wslScript = "$wslRepo/docs/video/run_theustad_demo_wsl.sh"
-$wslMarkers = (& wsl.exe wslpath -a -u $markers).Trim()
-$wslDone = (& wsl.exe wslpath -a -u $done).Trim()
-$wslStatus = (& wsl.exe wslpath -a -u $status).Trim()
-$command = "wsl.exe -d Ubuntu-24.04 -u gathu -- env THEUSTAD_ROOT='$wslRepo' VIDEO_MARKERS='$wslMarkers' VIDEO_DONE='$wslDone' VIDEO_STATUS='$wslStatus' bash '$wslScript'; exit " + '$LASTEXITCODE'
+$wslMarkers = Convert-ToWslPath $markers
+$wslDone = Convert-ToWslPath $done
+$wslStatus = Convert-ToWslPath $status
+$wslEnvironment = @(
+    "THEUSTAD_ROOT='$wslRepo'",
+    "VIDEO_MARKERS='$wslMarkers'",
+    "VIDEO_DONE='$wslDone'",
+    "VIDEO_STATUS='$wslStatus'"
+)
+foreach ($name in @("THEUSTAD_PLUGIN_REPO", "THEUSTAD_PLUGIN_PYTHON", "THEUSTAD_STATE_HOME", "DEMO_EVIDENCE")) {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if (-not [string]::IsNullOrWhiteSpace($value)) {
+        $value = Convert-ToWslPath $value
+        $escaped = $value.Replace("'", "'\''")
+        $wslEnvironment += "$name='$escaped'"
+    }
+}
+$command = "wsl.exe -d Ubuntu-24.04 -u gathu -- env $($wslEnvironment -join ' ') bash '$wslScript'; exit " + '$LASTEXITCODE'
+$encodedCommand = [Convert]::ToBase64String(
+    [Text.Encoding]::Unicode.GetBytes($command)
+)
 
 $terminal = Start-Process powershell.exe -ArgumentList @(
-    "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-Command", $command
+    "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-NoExit", "-EncodedCommand", $encodedCommand
 ) -PassThru -WindowStyle Normal
 
 Add-Type @"
@@ -79,7 +105,10 @@ try {
     if (-not $capture.HasExited) {
         $capture.StandardInput.WriteLine("q")
         $capture.StandardInput.Flush()
-        if (-not $capture.WaitForExit(30000)) { $capture.Kill() }
+        if (-not $capture.WaitForExit(30000)) {
+            $capture.Kill()
+            $capture.WaitForExit()
+        }
     }
     if (-not $terminal.HasExited) { $terminal.CloseMainWindow() | Out-Null }
 }
@@ -101,4 +130,5 @@ $probe = & $ffprobe -v error -show_entries stream=codec_name,width,height,durati
 if ($LASTEXITCODE -ne 0) { throw "ffprobe rejected the recorded video." }
 $probe
 Get-FileHash -Algorithm SHA256 -LiteralPath $output | Format-List
+$capture.Dispose()
 Write-Output "VIDEO $output"

@@ -58,8 +58,8 @@ sleep 3
 
 mark install
 screen "INSTALL - ONE THEUSTAD CODEX PLUGIN"
-require_file "$committed_evidence/real-project/theustad_plugin_install_list.json"
-cat "$committed_evidence/real-project/theustad_plugin_install_list.json"
+require_file "$committed_evidence/plugin_list.json"
+cat "$committed_evidence/plugin_list.json"
 printf '\n  The committed installation evidence names theustad@personal and its three skills.\n'
 sleep 3
 
@@ -94,7 +94,7 @@ mkdir -p "$a2_state" "$a2_log"
 agent_cmd="$plugin_python $theustad_root/fake_codex.py conftest_poison"
 resume_cmd="$plugin_python $theustad_root/fake_codex.py conftest_poison --resume '{thread_id}'"
 set +e
-"$plugin_python" -I -B "$theustad_root/theustad.py" \
+"$plugin_python" "$theustad_root/theustad.py" \
   --repo "$a2_repo" --task "$task" --cmd "$agent_cmd" --resume-cmd "$resume_cmd" \
   --state-dir "$a2_state" --log "$a2_log" --max-retries 0 --timeout 30 --no-color \
   2>&1 | tee "$evidence_root/a2-live.txt"

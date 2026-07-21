@@ -1,0 +1,8 @@
+[00:00:00,000 - 00:00:06,000] I show that TheUstad treats a coding agent's done message as a claim, not proof.
+[00:00:06,200 - 00:00:14,000] My control run is real Codex work on a pinned open-source project, but it has no protected verdict or audit root.
+[00:00:14,200 - 00:00:21,000] I install TheUstad as one Codex plugin; its standalone CLI uses the same enforcement core.
+[00:00:21,200 - 00:00:33,000] The run skill freezes trusted tests and configuration outside the target repository, starts a separate child Codex task, and resumes that exact child with verifier evidence.
+[00:00:33,200 - 00:00:43,000] FINAL VERIFIED means the explicit completion claim passed the configured protected verifier; it does not mean all software is universally correct.
+[00:00:43,200 - 00:00:54,000] This conftest-poisoning scene is a deterministic adversarial rehearsal. TheUstad reports TAMPERED and removes the planted protected file.
+[00:00:54,200 - 00:01:01,700] Changing a copied audit record makes validation BROKEN, while the untouched SHA-256 chain remains VALID against its externally anchored root.
+[00:01:02,000 - 00:01:09,900] I used Codex with GPT-5.6 to build, test, red-team, document, and package TheUstad for OpenAI Build Week.
