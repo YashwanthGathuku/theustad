@@ -1,0 +1,6 @@
+/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/verify_chain.py /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/docs/evidence/theustad-1.0/robustness/b4-tampered-copy.jsonl
+BROKEN at seq 1: hash mismatch
+[exit 1]
+/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/verify_chain.py /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/docs/evidence/theustad-1.0/robustness/b3-1-audit.jsonl
+VALID: 12 records, root 725c672d030e7505387eb82f897a086e6f6522148ce84ea114affbb49f8664c3
+[exit 0]

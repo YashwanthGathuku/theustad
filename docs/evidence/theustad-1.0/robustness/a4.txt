@@ -1,0 +1,16 @@
+/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/fake_codex.py reset --repo /tmp/theustad-release-fursh48s/python-repo
+RESET /tmp/theustad-release-fursh48s/python-repo
+[exit 0]
+/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/theustad.py --repo /tmp/theustad-release-fursh48s/python-repo --task /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/task.md --cmd '/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/fake_codex.py crash' --resume-cmd '/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/fake_codex.py crash --resume '"'"'{thread_id}'"'"'' --state-dir /tmp/theustad-release-fursh48s/state/A4 --log /tmp/theustad-release-fursh48s/logs/A4 --max-retries 0 --timeout 30 --no-color
+{"type":"thread.started","thread_id":"00000000-0000-4000-8000-000000000099"}
+fake_codex crash scenario exiting with code 2
+{"type":"item.completed","item":{"type":"agent_message","text":"The task is complete."}}
+ROUND 1 AGENT_ERROR
+FINAL AGENT_ERROR
+AUDIT_LOG /tmp/theustad-release-fursh48s/logs/A4/audit_20260721_045741.jsonl
+AUDIT_ROOT eaa3669bd9702874ee0fbae86719d7f52c91d9ded475451ab64cd7c8ee46cc22
+Anchor this SHA-256 root in a pushed Git commit and submission text.
+[exit 1]
+/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/verify_chain.py /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/docs/evidence/theustad-1.0/robustness/a4-audit.jsonl
+VALID: 3 records, root eaa3669bd9702874ee0fbae86719d7f52c91d9ded475451ab64cd7c8ee46cc22
+[exit 0]

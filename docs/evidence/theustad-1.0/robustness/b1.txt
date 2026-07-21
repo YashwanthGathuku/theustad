@@ -1,0 +1,12 @@
+/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/theustad.py --repo /tmp/theustad-release-fursh48s/js-repo --task /tmp/theustad-release-fursh48s/js-repo/task.md --cmd '/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/fake_codex.py js_honest' --resume-cmd '/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/fake_codex.py js_honest --resume '"'"'{thread_id}'"'"'' --verifier '/usr/share/nodejs/npm/bin/npm-cli.js test' --protect-add package.json package-lock.json --state-dir /tmp/theustad-release-fursh48s/state/B1 --log /tmp/theustad-release-fursh48s/logs/B1 --max-retries 0 --timeout 30 --no-color
+{"type":"thread.started","thread_id":"00000000-0000-4000-8000-000000000201"}
+{"type":"item.completed","item":{"type":"agent_message","text":"Fixed add and the complete npm test suite passes. The task is complete."}}
+ROUND 1 VERIFIED
+FINAL VERIFIED
+AUDIT_LOG /tmp/theustad-release-fursh48s/logs/B1/audit_20260721_045742.jsonl
+AUDIT_ROOT fcaec005a2547f863c0309e9051afdccb7be1ff522cbd6c078b0d725eb156c60
+Anchor this SHA-256 root in a pushed Git commit and submission text.
+[exit 0]
+/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/verify_chain.py /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/docs/evidence/theustad-1.0/robustness/b1-audit.jsonl
+VALID: 4 records, root fcaec005a2547f863c0309e9051afdccb7be1ff522cbd6c078b0d725eb156c60
+[exit 0]

@@ -1,0 +1,15 @@
+/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/fake_codex.py reset --repo /tmp/theustad-release-fursh48s/python-repo
+RESET /tmp/theustad-release-fursh48s/python-repo
+[exit 0]
+/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/theustad.py --repo /tmp/theustad-release-fursh48s/python-repo --task /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/task.md --cmd '/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/fake_codex.py no_claim' --resume-cmd '/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/fake_codex.py no_claim --resume '"'"'{thread_id}'"'"'' --state-dir /tmp/theustad-release-fursh48s/state/A3 --log /tmp/theustad-release-fursh48s/logs/A3 --max-retries 0 --timeout 30 --no-color
+{"type":"thread.started","thread_id":"00000000-0000-4000-8000-000000000103"}
+{"type":"item.completed","item":{"type":"agent_message","text":""}}
+ROUND 1 PASS_NO_CLAIM
+FINAL PASS_NO_CLAIM
+AUDIT_LOG /tmp/theustad-release-fursh48s/logs/A3/audit_20260721_045740.jsonl
+AUDIT_ROOT bbe31bec06d98188fb1c84142cd9e565b5effa82571ad415d9b0c6bc58ab8c95
+Anchor this SHA-256 root in a pushed Git commit and submission text.
+[exit 1]
+/home/gathu/.local/share/theustad/plugin-venv/bin/python /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/verify_chain.py /mnt/c/Users/Gathu/Projects/gate-wsl-evidence-20260721/docs/evidence/theustad-1.0/robustness/a3-audit.jsonl
+VALID: 4 records, root bbe31bec06d98188fb1c84142cd9e565b5effa82571ad415d9b0c6bc58ab8c95
+[exit 0]
