@@ -5,7 +5,7 @@ PUBLIC SOURCE
 Repository: https://github.com/YashwanthGathuku/theustad
 Branch: master
 Source release commit: eab74f24e1ccdda8109c4a71d6885af867955f37
-Plugin version: 1.0.0
+Plugin version: 1.0.0+codex.20260721091305
 
 YOUTUBE READBACK
 URL: https://youtu.be/D1nlvLk9iv8

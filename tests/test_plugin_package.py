@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -40,7 +41,7 @@ def test_manifest_identifies_theustad_and_only_bundles_skills():
     manifest = load_manifest()
 
     assert manifest["name"] == "theustad"
-    assert manifest["version"] == "1.0.0"
+    assert re.fullmatch(r"1\.0\.0\+codex\.[a-z0-9-]+", manifest["version"])
     assert manifest["skills"] == "./skills/"
     assert manifest["license"] == "GPL-3.0-or-later"
     assert {"hooks", "mcpServers", "apps"}.isdisjoint(manifest)

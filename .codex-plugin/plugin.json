@@ -1,6 +1,6 @@
 {
   "name": "theustad",
-  "version": "1.0.0",
+  "version": "1.0.0+codex.20260721091305",
   "description": "Protected verification and retry for Codex coding tasks.",
   "author": {
     "name": "Yashwanth Gathuku"

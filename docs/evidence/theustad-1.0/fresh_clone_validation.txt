@@ -33,7 +33,7 @@ Artifact SHA-256 check: every entry in robustness/sha256sums.txt is OK
 
 CODEX APP PLUGIN
 Installed ID: theustad@personal
-Version: 1.0.0
+Base package version at validated source commit: 1.0.0
 Installed: true
 Enabled: true
 Retired plugin matches: 0

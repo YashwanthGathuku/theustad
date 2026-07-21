@@ -1,13 +1,13 @@
 THEUSTAD 1.0 CODEX APP INSTALLATION EVIDENCE
-UTC 2026-07-21T08:53:29Z
+UTC 2026-07-21T09:14:47Z
 CODEX_VERSION codex-cli 0.144.5
 INSTALL_OUTPUT_BEGIN
 {
   "pluginId": "theustad@personal",
   "name": "theustad",
   "marketplaceName": "personal",
-  "version": "1.0.0",
-  "installedPath": "C:\\Users\\Gathu\\.codex\\plugins\\cache\\personal\\theustad\\1.0.0",
+  "version": "1.0.0+codex.20260721091305",
+  "installedPath": "C:\\Users\\Gathu\\.codex\\plugins\\cache\\personal\\theustad\\1.0.0+codex.20260721091305",
   "authPolicy": "ON_INSTALL"
 }
 THEUSTAD_PLUGIN_SOURCE C:\Users\Gathu\Projects\theustad
@@ -20,7 +20,7 @@ THEUSTAD_READBACK_BEGIN
     "pluginId":  "theustad@personal",
     "name":  "theustad",
     "marketplaceName":  "personal",
-    "version":  "1.0.0",
+    "version":  "1.0.0+codex.20260721091305",
     "installed":  true,
     "enabled":  true,
     "source":  {
