@@ -139,7 +139,7 @@ STATUS_REQUEST = (
 
 
 class GateRunner:
-    """Execute Gate's ordered verification-and-retry loop."""
+    """Execute TheUstad's ordered verification-and-retry loop."""
 
     def __init__(
         self,

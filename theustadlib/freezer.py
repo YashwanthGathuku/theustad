@@ -173,7 +173,7 @@ def freeze(
     patterns: Iterable[str],
     state_dir: str | os.PathLike[str],
 ) -> Manifest:
-    """Snapshot protected repository inputs into external Gate-owned state."""
+    """Snapshot protected repository inputs into external TheUstad-owned state."""
     repository = Path(repo).resolve(strict=True)
     if not repository.is_dir():
         raise ValueError(f"repository is not a directory: {repository}")

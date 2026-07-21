@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic fake Codex used for Gate's adversarial rehearsal."""
+"""Deterministic fake Codex used for TheUstad's adversarial rehearsal."""
 
 import argparse
 import json
@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_SEED = ROOT / "tests" / "fixtures" / "demo_repo_seed"
-STATE_FILE = ".gate_fake_codex_state.json"
+STATE_FILE = ".theustad_fake_codex_state.json"
 THREAD_IDS = {
     "demo3": "00000000-0000-4000-8000-000000000003",
     "naive2": "00000000-0000-4000-8000-000000000002",

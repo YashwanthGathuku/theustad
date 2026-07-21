@@ -121,7 +121,7 @@ def test_notice_identifies_theustad_and_preserves_required_attribution():
 
 
 def test_official_plugin_validator_accepts_package():
-    configured = os.environ.get("GATE_PLUGIN_VALIDATOR")
+    configured = os.environ.get("THEUSTAD_PLUGIN_VALIDATOR")
     validator = (
         Path(configured)
         if configured
@@ -341,7 +341,7 @@ def test_update_marketplace_replaces_gate_in_place(tmp_path):
 
 def test_update_marketplace_rejects_symlinked_manifest(tmp_path, monkeypatch):
     path = tmp_path / ".agents" / "plugins" / "marketplace.json"
-    plugin_path = tmp_path / "plugins" / "gate"
+    plugin_path = tmp_path / "plugins" / "theustad"
     original_is_symlink = Path.is_symlink
 
     def fake_is_symlink(candidate):
@@ -352,7 +352,7 @@ def test_update_marketplace_rejects_symlinked_manifest(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "is_symlink", fake_is_symlink)
 
     with pytest.raises(InstallError, match="symlink"):
-        update_marketplace(path, plugin_name="gate", plugin_path=plugin_path)
+        update_marketplace(path, plugin_name="theustad", plugin_path=plugin_path)
 
 
 def test_update_marketplace_rejects_path_for_a_different_plugin(tmp_path):
@@ -362,7 +362,7 @@ def test_update_marketplace_rejects_path_for_a_different_plugin(tmp_path):
         update_marketplace(
             path,
             plugin_name="theustad",
-            plugin_path=tmp_path / "plugins" / "gate",
+            plugin_path=tmp_path / "plugins" / "other",
         )
 
 
@@ -567,14 +567,14 @@ def test_readme_documents_complete_plugin_workflow_and_platform_boundary():
 
     for required in (
         "## Codex plugin",
-        '"$GATE_PYTHON" scripts/install_plugin.py',
-        "$gate:doctor",
-        "$gate:run",
-        "$gate:audit",
-        "codex plugin remove gate@personal --json",
+        '"$THEUSTAD_PYTHON" scripts/install_plugin.py',
+        "$theustad:doctor",
+        "$theustad:run",
+        "$theustad:audit",
+        "codex plugin remove theustad@personal --json",
         "Linux, macOS, or WSL 2",
         "Native Windows",
-        "separate Gate-controlled child",
+        "separate TheUstad-controlled child",
         "## Choose an interface",
         "Standalone CLI",
         "docs/demo/README.md",
@@ -588,17 +588,17 @@ def test_readme_leads_with_verified_problem_and_single_core_architecture():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     for required in (
-        'Codex says "done." Gate checks whether that is true.',
+        'Codex says "done." TheUstad checks whether that is true.',
         "https://openai.com/index/how-we-monitor-internal-coding-agents-misalignment/",
         "https://metr.org/evaluations/claude-3-7-report/",
         "https://survey.stackoverflow.co/2025/ai",
         "https://dora.dev/insights/balancing-ai-tensions/",
         "https://arxiv.org/html/2503.15223v1",
         "https://youtu.be/njgvvLapxs0",
-        "| Without Gate | With Gate |",
+        "| Without TheUstad | With TheUstad |",
         "same enforcement core",
         "allowlisted copy",
-        "Gate succeeds when completion becomes falsifiable and reproducible",
+        "TheUstad succeeds when completion becomes falsifiable and reproducible",
         "docs/video/gate-real-project-live.mp4",
         "GPL-3.0-or-later",
     ):
@@ -607,7 +607,7 @@ def test_readme_leads_with_verified_problem_and_single_core_architecture():
     assert "MIT" not in readme
 
 
-def test_real_project_demo_documents_both_interfaces_and_honesty_boundaries():
+def test_legacy_gate_demo_documents_both_interfaces_and_honesty_boundaries():
     demo = (ROOT / "docs" / "demo" / "README.md").read_text(encoding="utf-8")
 
     for required in (

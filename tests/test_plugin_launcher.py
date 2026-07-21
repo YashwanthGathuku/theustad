@@ -124,7 +124,7 @@ def test_allocate_state_dir_rejects_state_home_inside_repo(tmp_path):
     repo.mkdir()
 
     with pytest.raises(PluginError, match="outside the target repository"):
-        allocate_state_dir(repo, state_home=repo / ".gate")
+        allocate_state_dir(repo, state_home=repo / ".theustad")
 
 
 class RecordingRunner:

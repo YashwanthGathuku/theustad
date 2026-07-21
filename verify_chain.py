@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Independently verify a gate audit chain. Recomputes every hash."""
+"""Independently verify a TheUstad audit chain. Recomputes every hash."""
 import hashlib, json, sys
 
 def main(path):

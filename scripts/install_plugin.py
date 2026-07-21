@@ -297,7 +297,7 @@ def main(
             home,
         )
     except (InstallError, OSError) as error:
-        print(f"GATE_PLUGIN_INSTALL_ERROR {error}", file=sys.stderr)
+        print(f"THEUSTAD_PLUGIN_INSTALL_ERROR {error}", file=sys.stderr)
         return 2
 
 

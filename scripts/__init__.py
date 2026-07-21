@@ -1,1 +1,1 @@
-"""Gate plugin support scripts."""
+"""TheUstad plugin support scripts."""
