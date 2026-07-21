@@ -196,6 +196,12 @@ behavior exercised by the complete WSL run. The B3/B4 original audit root is:
 d16ed29de2e6408f5ed1a520759caa1cdd40236f5006cc2f001ba9c7caf96aab
 ```
 
+The Codex app installation smoke test reported
+`1.0.0+codex.20260721091305` installed and enabled. A fresh Codex process then
+loaded `$theustad:audit` from that exact cache-busted package and validated the
+12-record chain above with exit code `0`. The captured Codex task ID is
+`019f83f4-58e2-7ab2-9e46-3ce269eb9356`.
+
 ### Three-minute video scope
 
 The video does not need to replay all 18 checks. It should visibly prove four
