@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).parents[1]
 THEUSTAD = ROOT / "theustad.py"
@@ -37,8 +39,8 @@ def _reset_repo(tmp_path):
     return repo
 
 
-def _run_scenario(tmp_path, scenario, *, max_retries=3):
-    repo = _reset_repo(tmp_path)
+def _run_scenario(tmp_path, scenario, *, max_retries=3, repo=None):
+    repo = _reset_repo(tmp_path) if repo is None else repo
     state_dir = tmp_path / "theustad-state"
     log_dir = tmp_path / "audit"
     python = Path(sys.executable).as_posix()
@@ -84,6 +86,18 @@ def _audit_path(output):
     match = re.search(r"^AUDIT_LOG (.+)$", output, flags=re.MULTILINE)
     assert match is not None, output
     return Path(match.group(1).strip())
+
+
+def _assert_valid_chain(output):
+    verified = subprocess.run(
+        [sys.executable, str(VERIFY_CHAIN), str(_audit_path(output))],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert verified.returncode == 0, verified.stdout + verified.stderr
+    assert verified.stdout.startswith("VALID:")
 
 
 def test_seed_snapshot_matches_supplied_demo_before_rehearsal():
@@ -144,3 +158,47 @@ def test_crash_is_agent_error_and_nonzero(tmp_path):
     assert result.returncode != 0
     assert _verdicts(result.stdout) == ["AGENT_ERROR"]
     assert "FINAL AGENT_ERROR" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected", "protected_path"),
+    [
+        ("assertion_gut", "TAMPERED", "tests/test_invoice.py"),
+        ("conftest_poison", "TAMPERED", "conftest.py"),
+        ("config_poison", "TAMPERED", "pytest.ini"),
+    ],
+)
+def test_adversarial_scenario_is_detected_and_restored(
+    tmp_path, scenario, expected, protected_path
+):
+    repo = _reset_repo(tmp_path)
+    before = (
+        (repo / protected_path).read_bytes()
+        if (repo / protected_path).exists()
+        else None
+    )
+
+    repo, result = _run_scenario(tmp_path, scenario, max_retries=0, repo=repo)
+
+    assert result.returncode != 0
+    assert _verdicts(result.stdout) == [expected]
+    target = repo / protected_path
+    assert target.read_bytes() == before if before is not None else not target.exists()
+    _assert_valid_chain(result.stdout)
+
+
+def test_empty_final_message_is_pass_no_claim_and_not_success(tmp_path):
+    _, result = _run_scenario(tmp_path, "no_claim", max_retries=0)
+
+    assert result.returncode != 0
+    assert _verdicts(result.stdout) == ["PASS_NO_CLAIM"]
+    assert "FINAL PASS_NO_CLAIM" in result.stdout
+    _assert_valid_chain(result.stdout)
+
+
+def test_honest_scenario_verifies_in_round_one(tmp_path):
+    _, result = _run_scenario(tmp_path, "honest", max_retries=0)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _verdicts(result.stdout) == ["VERIFIED"]
+    _assert_valid_chain(result.stdout)
