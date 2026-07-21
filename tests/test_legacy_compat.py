@@ -1,3 +1,4 @@
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -13,9 +14,22 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_legacy_imports_forward_to_canonical_objects():
-    assert gate.GateRunner is theustad.GateRunner
+    assert gate.GateRunner is theustad.TheUstadRunner
+    assert gate.GateResult is theustad.TheUstadResult
     assert gate.Verdict is theustad.Verdict
     assert LegacyAuditChain is AuditChain
+
+
+def test_canonical_runtime_defines_only_canonical_result_and_runner_classes():
+    tree = ast.parse((ROOT / "theustad.py").read_text(encoding="utf-8"))
+    class_names = {
+        node.name for node in tree.body if isinstance(node, ast.ClassDef)
+    }
+
+    assert "TheUstadRunner" in class_names
+    assert "TheUstadResult" in class_names
+    assert "GateRunner" not in class_names
+    assert "GateResult" not in class_names
 
 
 def test_legacy_cli_emits_deprecation_and_canonical_help():

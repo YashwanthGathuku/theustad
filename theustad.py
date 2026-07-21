@@ -57,7 +57,7 @@ class RoundResult:
 
 
 @dataclass(frozen=True)
-class GateResult:
+class TheUstadResult:
     verdict: Verdict
     exit_code: int
     rounds: tuple[RoundResult, ...]
@@ -138,7 +138,7 @@ STATUS_REQUEST = (
 )
 
 
-class GateRunner:
+class TheUstadRunner:
     """Execute TheUstad's ordered verification-and-retry loop."""
 
     def __init__(
@@ -242,7 +242,7 @@ class GateRunner:
         )
         self.output(f"ROUND {result.round_number} {result.verdict.value}")
 
-    def run(self) -> GateResult:
+    def run(self) -> TheUstadResult:
         manifest = freeze(self.repo, self.patterns, self.state_dir)
         audit = AuditChain(self.log_dir)
         rounds: list[RoundResult] = []
@@ -373,7 +373,7 @@ class GateRunner:
         self.output(
             "Anchor this SHA-256 root in a pushed Git commit and submission text."
         )
-        return GateResult(
+        return TheUstadResult(
             verdict=final_verdict,
             exit_code=exit_code,
             rounds=tuple(rounds),
@@ -491,7 +491,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             repo,
             args.timeout,
         )
-        runner = GateRunner(
+        runner = TheUstadRunner(
             repo=repo,
             task=task,
             session=session,

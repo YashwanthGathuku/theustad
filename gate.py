@@ -4,7 +4,11 @@
 import sys
 
 from theustad import *  # noqa: F401,F403
-from theustad import main as _main
+from theustad import TheUstadResult, TheUstadRunner, main as _main
+
+# Deprecated 1.x import aliases.
+GateResult = TheUstadResult
+GateRunner = TheUstadRunner
 
 
 def main(argv=None):

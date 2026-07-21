@@ -95,7 +95,7 @@ def _run_theustad(
     kwargs = {}
     if claim_finder is not None:
         kwargs["claim_finder"] = claim_finder
-    runner = theustad.GateRunner(
+    runner = theustad.TheUstadRunner(
         repo=repo,
         task="implement the task",
         session=session,
