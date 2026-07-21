@@ -58,7 +58,8 @@ def _group_exists(process_group: int) -> bool:
 def _signal_group(process_group: int, signal_number: int) -> None:
     try:
         os.killpg(process_group, signal_number)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
+        # macOS can report EPERM after the group has become inaccessible.
         pass
 
 

@@ -1,5 +1,5 @@
 TheUstad final release hardening check
-Captured: 2026-07-21T14:15:37Z
+Captured: 2026-07-21T14:35:00Z
 Platforms: native Windows and Ubuntu 24.04 under WSL 2
 
 Upgrades under test
@@ -9,6 +9,10 @@ Upgrades under test
 - CI uses pinned GitHub Action revisions across Ubuntu, macOS, and Windows.
 - The README exposes the public workflow badge and documents WSL-native custom
   verifier requirements.
+- POSIX process-group cleanup tolerates macOS EPERM after a terminated group
+  becomes inaccessible, with regression coverage in both process runners.
+- The npm end-to-end assertion accepts equivalent Node reporter output across
+  platforms while still requiring a successful one-test run.
 
 Plugin package
 --------------
@@ -17,24 +21,24 @@ Plugin validation passed: C:\Users\Gathu\Projects\theustad
 
 Installed plugin:
 pluginId: theustad@personal
-version: 1.0.0+codex.20260721141611
-installedPath: C:\Users\Gathu\.codex\plugins\cache\personal\theustad\1.0.0+codex.20260721141611
+version: 1.0.0+codex.20260721143138
+installedPath: C:\Users\Gathu\.codex\plugins\cache\personal\theustad\1.0.0+codex.20260721143138
 
 Project suites
 --------------
 Native Windows existing environment:
 python -m pytest tests -q
-191 passed, 4 skipped in 62.59s
+193 passed, 4 skipped in 56.82s
 
 Native Windows clean virtual environment:
 python -m pip check
 No broken requirements found.
 python -m pytest tests -q
-190 passed, 5 skipped in 30.80s
+192 passed, 5 skipped in 31.69s
 
 WSL 2 with WSL-native /usr/bin and /bin verifier tools:
 python -m pytest tests -q
-194 passed, 1 skipped in 36.35s
+196 passed, 1 skipped in 33.18s
 
 The clean Windows suite skips the optional external plugin-validator test. The
 validator was executed separately above. The WSL suite executes the POSIX

@@ -93,7 +93,7 @@ def test_explicit_absolute_npm_verifier_verifies_without_mutating_protected_inpu
         shell=False,
     )
     assert npm_result.returncode == 0, npm_result.stdout + npm_result.stderr
-    assert "# pass 1" in npm_result.stdout
+    assert "pass 1" in npm_result.stdout
     assert protected_hashes == {
         path: _sha256(repo / path) for path in protected_hashes
     }

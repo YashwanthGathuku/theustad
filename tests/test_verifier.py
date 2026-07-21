@@ -134,6 +134,17 @@ def test_timeout_returns_124_with_explicit_evidence(tmp_path):
     assert result.warning == "VERIFIER_TIMEOUT after 0.2 seconds"
 
 
+def test_signal_group_tolerates_inaccessible_completed_group(monkeypatch):
+    verifier = _verifier()
+
+    def inaccessible_group(*_args):
+        raise PermissionError("group is no longer accessible")
+
+    monkeypatch.setattr(verifier.os, "killpg", inaccessible_group, raising=False)
+
+    verifier._signal_group(123, 1)
+
+
 def test_empty_output_is_exposed_as_a_warning(tmp_path):
     verifier = _verifier()
 

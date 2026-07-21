@@ -175,6 +175,17 @@ time.sleep(30)
     assert result.warnings == ("AGENT_TIMEOUT after 0.2 seconds",)
 
 
+def test_signal_group_tolerates_inaccessible_completed_group(monkeypatch):
+    session = _session_module()
+
+    def inaccessible_group(*_args):
+        raise PermissionError("group is no longer accessible")
+
+    monkeypatch.setattr(session.os, "killpg", inaccessible_group, raising=False)
+
+    session._signal_group(123, 1)
+
+
 def _pid_is_running(pid):
     try:
         os.kill(pid, 0)
