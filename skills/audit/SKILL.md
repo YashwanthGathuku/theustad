@@ -1,11 +1,11 @@
 ---
 name: audit
-description: Independently verify a Gate SHA-256 JSONL audit chain and report its record count and root. Use when the user provides an audit log, asks whether Gate evidence is intact, or needs the final root for external anchoring.
+description: Independently verify a TheUstad SHA-256 JSONL audit chain and report its record count and root. Use when the user provides an audit log, asks whether TheUstad evidence is intact, or needs the final root for external anchoring.
 ---
 
-# Verify Gate Audit
+# Verify TheUstad Audit
 
-Verify a completed Gate audit without changing the target repository.
+Verify a completed TheUstad audit without changing the target repository.
 
 1. Resolve the plugin root from this SKILL.md's absolute path. This file is at
    `<plugin-root>/skills/audit/SKILL.md`, so the plugin root is two directories
@@ -14,7 +14,7 @@ Verify a completed Gate audit without changing the target repository.
 3. Require an explicit audit log path, then invoke:
 
    ```text
-   <absolute-python> <plugin-root>/scripts/gate_plugin.py audit <absolute-log-path>
+   <absolute-python> <plugin-root>/scripts/theustad_plugin.py audit <absolute-log-path>
    ```
 
 4. Relay the verifier output and exit code exactly. A nonzero exit is not a

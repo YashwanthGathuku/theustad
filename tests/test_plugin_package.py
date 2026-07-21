@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+import scripts.build_plugin_assets as plugin_assets
 import scripts.install_plugin as plugin_installer
 from scripts.build_plugin_assets import build_assets
 from scripts.install_plugin import (
@@ -71,23 +72,26 @@ def test_each_skill_has_frontmatter_and_launcher_command(name):
     assert text.startswith("---\n")
     assert f"name: {name}\n" in text
     assert "description:" in text.split("---", 2)[1]
-    assert "scripts/gate_plugin.py" in text
+    assert "TheUstad" in text
+    assert "scripts/theustad_plugin.py" in text
     assert "absolute" in text.lower()
 
 
-def test_run_skill_preserves_gate_as_the_verdict_authority():
+def test_run_skill_preserves_theustad_as_the_verdict_authority():
     text = (ROOT / "skills" / "run" / "SKILL.md").read_text(encoding="utf-8")
 
     assert "Do not edit the target repository" in text
     assert "FINAL VERIFIED" in text
     assert "exit code 0" in text
     assert "Do not reinterpret" in text
-    assert "separate Gate-controlled child" in text
+    assert "separate TheUstad-controlled child" in text
+    assert "$theustad:run" in text
 
 
 def test_generated_png_assets_have_expected_dimensions(tmp_path):
     build_assets(tmp_path)
 
+    assert plugin_assets.THEUSTAD_GREEN == (20, 184, 110, 255)
     assert png_dimensions(tmp_path / "icon.png") == (128, 128)
     assert png_dimensions(tmp_path / "logo.png") == (512, 512)
 
@@ -95,6 +99,18 @@ def test_generated_png_assets_have_expected_dimensions(tmp_path):
 def test_committed_png_assets_have_expected_dimensions():
     assert png_dimensions(ROOT / "assets" / "icon.png") == (128, 128)
     assert png_dimensions(ROOT / "assets" / "logo.png") == (512, 512)
+
+
+def test_notice_identifies_theustad_and_preserves_required_attribution():
+    notice = (ROOT / "NOTICE").read_text(encoding="utf-8")
+
+    for required in (
+        "TheUstad 1.0 - originally developed by Yashwanth Gathuku",
+        "Formerly released as Gate v2",
+        "https://github.com/YashwanthGathuku/theustad",
+        "GPLv3 section 7(b)",
+    ):
+        assert required in notice
 
 
 def test_official_plugin_validator_accepts_package():

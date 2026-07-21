@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate deterministic Gate plugin PNG assets with the standard library."""
+"""Generate deterministic TheUstad plugin PNG assets with the standard library."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 Color = tuple[int, int, int, int]
 BACKGROUND: Color = (16, 23, 29, 255)
 BORDER: Color = (51, 70, 79, 255)
-GATE_GREEN: Color = (20, 184, 110, 255)
+THEUSTAD_GREEN: Color = (20, 184, 110, 255)
 WHITE: Color = (245, 248, 250, 255)
 
 
@@ -92,25 +92,54 @@ def _render(size: int) -> bytes:
     canvas.rectangle(margin, margin, margin + border, size - margin, BORDER)
     canvas.rectangle(size - margin - border, margin, size - margin, size - margin, BORDER)
 
-    left = round(size * 0.22)
-    right = round(size * 0.78)
-    top = round(size * 0.2)
-    bottom = round(size * 0.82)
-    gate_width = max(4, round(size * 0.075))
-    canvas.rectangle(left, top, left + gate_width, bottom, GATE_GREEN)
-    canvas.rectangle(right - gate_width, top, right, bottom, GATE_GREEN)
-    canvas.rectangle(left, top, right, top + gate_width, GATE_GREEN)
+    monogram_width = max(4, round(size * 0.075))
+    # Compact TU monogram: T at left, U at right, with clear negative space.
+    canvas.rectangle(
+        round(size * 0.2),
+        round(size * 0.22),
+        round(size * 0.48),
+        round(size * 0.22) + monogram_width,
+        THEUSTAD_GREEN,
+    )
+    canvas.rectangle(
+        round(size * 0.3),
+        round(size * 0.22),
+        round(size * 0.3) + monogram_width,
+        round(size * 0.62),
+        THEUSTAD_GREEN,
+    )
+    canvas.rectangle(
+        round(size * 0.53),
+        round(size * 0.22),
+        round(size * 0.53) + monogram_width,
+        round(size * 0.57),
+        THEUSTAD_GREEN,
+    )
+    canvas.rectangle(
+        round(size * 0.75) - monogram_width,
+        round(size * 0.22),
+        round(size * 0.75),
+        round(size * 0.57),
+        THEUSTAD_GREEN,
+    )
+    canvas.rectangle(
+        round(size * 0.53),
+        round(size * 0.53),
+        round(size * 0.75),
+        round(size * 0.53) + monogram_width,
+        THEUSTAD_GREEN,
+    )
 
     check_width = max(4, round(size * 0.055))
     canvas.line(
-        (round(size * 0.36), round(size * 0.57)),
-        (round(size * 0.48), round(size * 0.69)),
+        (round(size * 0.34), round(size * 0.72)),
+        (round(size * 0.45), round(size * 0.82)),
         check_width,
         WHITE,
     )
     canvas.line(
-        (round(size * 0.48), round(size * 0.69)),
-        (round(size * 0.68), round(size * 0.43)),
+        (round(size * 0.45), round(size * 0.82)),
+        (round(size * 0.7), round(size * 0.64)),
         check_width,
         WHITE,
     )
