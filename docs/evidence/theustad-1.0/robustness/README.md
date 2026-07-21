@@ -53,6 +53,6 @@ sha256sum -c sha256sums.txt
 
 The Git commit containing this evidence bundle is the external anchor. The bundle commit is recorded in the follow-up commit below; the follow-up cannot be part of its own hash.
 
-Evidence-content commit: `PENDING_FIRST_COMMIT`
+Evidence-content commit: `33110ea13105df7aa0699ad3c6bc38c9291c129e`
 
-Anchor-reference commit: `PENDING_FOLLOW_UP_COMMIT`
+Anchor-reference commit: this follow-up documentation commit.
