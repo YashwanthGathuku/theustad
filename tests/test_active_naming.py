@@ -1,3 +1,4 @@
+import hashlib
 import os
 import re
 import subprocess
@@ -32,8 +33,6 @@ HISTORY_FILES = {
     "docs/demo/iniconfig_acceptance_test.py",
     "docs/demo/iniconfig_task.md",
     "docs/demo/prepare_wsl_demo.sh",
-    legacy("docs/demo/run_<lower>_cli_wsl.sh"),
-    legacy("docs/demo/run_<lower>_plugin_wsl.sh"),
     legacy("docs/demo/run_no_<lower>_wsl.sh"),
     legacy("docs/evidence/LEGACY_<upper>_EVIDENCE.md"),
     "docs/evidence/README.md",
@@ -246,6 +245,18 @@ ALLOWED_OCCURRENCES = {
     "tests/test_events.py": exact_lines(
         (168, '    ] == ["<upper>_SCHEMA_PING"]'),
     ),
+    "tests/test_demo_scripts.py": exact_lines(
+        (16, '    no_theustad_script = read_script("run_no_<lower>_wsl.sh")'),
+        (23, '    assert "<lower>.py" not in no_theustad_script'),
+        (33, '        "run_no_<lower>_wsl.sh",'),
+        (55, '    script = read_script("run_no_<lower>_wsl.sh")'),
+        (58, '    assert "<display> skill" in script or "<display> launcher" in script'),
+    ),
+    "tests/test_docs_release.py": exact_lines(
+        (20, '        "Formerly <display>",'),
+        (32, '        assert "git clone https://github.com/YashwanthGathuku/<lower>" not in text'),
+        (33, '        assert "codex plugin add <lower>@personal" not in text'),
+    ),
     "tests/test_plugin_launcher.py": exact_lines(
         (76, '        environ={"THEUSTAD_STATE_HOME": str(current), "<upper>_STATE_HOME": str(legacy)},'),
         (87, '        environ={"<upper>_STATE_HOME": str(legacy)}, warning=warnings.append'),
@@ -332,6 +343,21 @@ ALLOWED_OCCURRENCES = {
     ),
 }
 
+PINNED_RAW_EVIDENCE = {
+    "docs/evidence/theustad-1.0/real-project/no_theustad_console.jsonl": "4359cc2b1106d2a523e977cf38b032e232acd5c0f7d377c9e8d9c9f8648aea74",
+    "docs/evidence/theustad-1.0/real-project/prepare_ordinary_summary.txt": "611071785a2b0a050944711884de10e185319099ab0eccc8ef854f456d60caad",
+    "docs/evidence/theustad-1.0/real-project/prepare_theustad-cli_summary.txt": "1c53b274b18e48879c42cd6fa045ece4f2534a7f5121cdade2050cb961ec29c9",
+    "docs/evidence/theustad-1.0/real-project/prepare_theustad-plugin_summary.txt": "9ee148615ba5227f0c43915e8ff29deb1f21b636320866ce069d53cdc6aa54f4",
+    "docs/evidence/theustad-1.0/real-project/theustad_cli_audit.jsonl": "0c989564b06e80187253b7a3f810daf81f2453155a8e3a66a039493cb9e27268",
+    "docs/evidence/theustad-1.0/real-project/theustad_cli_baseline_tests.txt": "ceba08d56b62ae9b8303c809ecb3abdfa1c59f5e9c326b564173ec39cdcb6771",
+    "docs/evidence/theustad-1.0/real-project/theustad_cli_console.txt": "34bc2c28162b5a094e6e568c429a6f4995f051d2bf527c6b88d46d939cf431d6",
+    "docs/evidence/theustad-1.0/real-project/theustad_plugin_audit.jsonl": "14132e8deb19e2e0ddae5f800a7521c09dd590e572e46b8de38d609861223915",
+    "docs/evidence/theustad-1.0/real-project/theustad_plugin_baseline_tests.txt": "d381a22521cefda29a72f113c8d2d6936c4be368fa6372431f0944c87edbc926",
+    "docs/evidence/theustad-1.0/real-project/theustad_plugin_console.jsonl": "9da5509abed189cf76a577f8c755eda68b93b3d7910685a7f88d6fb7351fc567",
+    "docs/evidence/theustad-1.0/real-project/theustad_plugin_install_list.json": "9a94cce2522621cbc52fe178227125f8a25baf251d181e9282644b25d0e24fc8",
+    "docs/evidence/theustad-1.0/real-project/theustad_plugin_list.json": "9a94cce2522621cbc52fe178227125f8a25baf251d181e9282644b25d0e24fc8",
+}
+
 
 def tracked_files(*, root=ROOT):
     output = subprocess.run(
@@ -358,6 +384,9 @@ def find_offenders(files, *, root=ROOT):
 
         path = root / relative
         if not path.is_file() or b"\0" in path.read_bytes()[:4096]:
+            continue
+        expected_hash = PINNED_RAW_EVIDENCE.get(relative)
+        if expected_hash and hashlib.sha256(path.read_bytes()).hexdigest() == expected_hash:
             continue
         for line_number, line in enumerate(
             path.read_text(encoding="utf-8", errors="surrogateescape").splitlines(),
@@ -407,8 +436,28 @@ def test_new_theustad_evidence_remains_scanned(tmp_path):
 
 def test_all_declared_path_exceptions_exist_in_git():
     files = set(tracked_files())
-    declared_files = HISTORY_FILES | COMPATIBILITY_PATHS | set(ALLOWED_OCCURRENCES)
+    declared_files = (
+        HISTORY_FILES
+        | COMPATIBILITY_PATHS
+        | set(ALLOWED_OCCURRENCES)
+        | set(PINNED_RAW_EVIDENCE)
+    )
     assert sorted(declared_files - files) == []
+
+
+def test_pinned_raw_evidence_hashes_match():
+    for relative, expected in PINNED_RAW_EVIDENCE.items():
+        assert hashlib.sha256((ROOT / relative).read_bytes()).hexdigest() == expected
+
+
+def test_changed_pinned_evidence_is_scanned(tmp_path):
+    relative = next(iter(PINNED_RAW_EVIDENCE))
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    line = legacy("<display> is the canonical product.")
+    path.write_text(line + "\n", encoding="utf-8")
+
+    assert find_offenders([relative], root=tmp_path) == [f"{relative}:1:{line}"]
 
 
 def test_camel_case_old_identifier_is_reported(tmp_path):

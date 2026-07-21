@@ -1,0 +1,32 @@
+MODE theustad-plugin
+STARTED 2026-07-21T05:43:01Z
+FINISHED 2026-07-21T05:43:02Z
+BASELINE_TEST_EXIT 1
+BASELINE_COMMIT 190c9368295d2ec8ab473249a4d17ce61aa17614
+UPSTREAM_COMMIT 77db208ab4ae0cd2061d909fe222a1db72867850
+ACCEPTANCE_SHA256 4dbb69ddcfedad582e5ef445fd5fa561428d6ba0f7b7444eeda591d299b2bfc4
+.................................................F                       [100%]
+=================================== FAILURES ===================================
+_______________ test_lengths_report_sections_and_section_entries _______________
+
+    def test_lengths_report_sections_and_section_entries() -> None:
+        config = IniConfig(
+            "gate-demo.ini",
+            """\
+    [alpha]
+    first = 1
+    second = 2
+    
+    [beta]
+    third = 3
+    """,
+        )
+    
+>       assert len(config) == 2
+               ^^^^^^^^^^^
+E       TypeError: object of type 'IniConfig' has no len()
+
+testing/test_theustad_demo_acceptance.py:17: TypeError
+=========================== short test summary info ============================
+FAILED testing/test_theustad_demo_acceptance.py::test_lengths_report_sections_and_section_entries
+1 failed, 49 passed in 0.41s

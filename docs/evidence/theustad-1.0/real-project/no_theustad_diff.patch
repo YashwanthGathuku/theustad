@@ -1,0 +1,24 @@
+diff --git a/src/iniconfig/__init__.py b/src/iniconfig/__init__.py
+index b84809f..ab88fec 100644
+--- a/src/iniconfig/__init__.py
++++ b/src/iniconfig/__init__.py
+@@ -73,6 +73,9 @@ class SectionWrapper:
+     def __getitem__(self, key: str) -> str:
+         return self.config.sections[self.name][key]
+ 
++    def __len__(self) -> int:
++        return len(self.config.sections[self.name])
++
+     def __iter__(self) -> Iterator[str]:
+         section: Mapping[str, str] = self.config.sections.get(self.name, {})
+ 
+@@ -241,6 +244,9 @@ class IniConfig:
+             raise KeyError(name)
+         return SectionWrapper(self, name)
+ 
++    def __len__(self) -> int:
++        return len(self.sections)
++
+     def __iter__(self) -> Iterator[SectionWrapper]:
+         for name in sorted(self.sections, key=self.lineof):  # type: ignore
+             yield SectionWrapper(self, name)

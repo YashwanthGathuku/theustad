@@ -1,0 +1,23 @@
+diff --git a/src/iniconfig/__init__.py b/src/iniconfig/__init__.py
+index b84809f..34af027 100644
+--- a/src/iniconfig/__init__.py
++++ b/src/iniconfig/__init__.py
+@@ -81,6 +81,9 @@ class SectionWrapper:
+ 
+         yield from sorted(section, key=lineof)
+ 
++    def __len__(self) -> int:
++        return len(self.config.sections[self.name])
++
+     def items(self) -> Iterator[tuple[str, str]]:
+         for name in self:
+             yield name, self[name]
+@@ -245,5 +248,8 @@ class IniConfig:
+         for name in sorted(self.sections, key=self.lineof):  # type: ignore
+             yield SectionWrapper(self, name)
+ 
++    def __len__(self) -> int:
++        return len(self.sections)
++
+     def __contains__(self, arg: str) -> bool:
+         return arg in self.sections
