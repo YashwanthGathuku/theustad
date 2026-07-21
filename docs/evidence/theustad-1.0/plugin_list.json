@@ -1,0 +1,28 @@
+{
+  "command": "env HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG CODEX_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.codex XDG_CONFIG_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.config XDG_DATA_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.local/share XDG_STATE_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.local/state XDG_CACHE_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.cache PATH=/home/gathu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin codex plugin list --json",
+  "utc_timestamp": "2026-07-21T03:31:34Z",
+  "codex_version": "codex-cli 0.144.6",
+  "python_version": "Python 3.12.3",
+  "exact_stdout": "{\n  \"installed\": [\n    {\n      \"pluginId\": \"theustad@personal\",\n      \"name\": \"theustad\",\n      \"marketplaceName\": \"personal\",\n      \"version\": \"1.0.0\",\n      \"installed\": true,\n      \"enabled\": true,\n      \"source\": {\n        \"source\": \"local\",\n        \"path\": \"/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/plugins/theustad\"\n      },\n      \"installPolicy\": \"AVAILABLE\",\n      \"authPolicy\": \"ON_INSTALL\"\n    }\n  ],\n  \"available\": []\n}\n",
+  "exact_stderr": "",
+  "output": {
+    "installed": [
+      {
+        "pluginId": "theustad@personal",
+        "name": "theustad",
+        "marketplaceName": "personal",
+        "version": "1.0.0",
+        "installed": true,
+        "enabled": true,
+        "source": {
+          "source": "local",
+          "path": "/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/plugins/theustad"
+        },
+        "installPolicy": "AVAILABLE",
+        "authPolicy": "ON_INSTALL"
+      }
+    ],
+    "available": []
+  },
+  "exit_code": 0
+}

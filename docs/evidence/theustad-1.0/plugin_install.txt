@@ -1,0 +1,28 @@
+COMMAND: env HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-WSTj6Y CODEX_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-WSTj6Y/.codex XDG_CONFIG_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-WSTj6Y/.config XDG_DATA_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-WSTj6Y/.local/share XDG_STATE_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-WSTj6Y/.local/state XDG_CACHE_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-WSTj6Y/.cache /home/gathu/.local/share/theustad/plugin-venv/bin/python scripts/install_plugin.py
+UTC_TIMESTAMP: 2026-07-21T03:30:43Z
+CODEX_VERSION: codex-cli 0.144.6
+PYTHON_VERSION: Python 3.12.3
+OUTPUT_BEGIN
+THEUSTAD_PLUGIN_INSTALL_ERROR Codex CLI was not found on PATH
+OUTPUT_END
+EXIT_CODE: 2
+
+RETRY_BEGIN
+COMMAND: env HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG CODEX_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.codex XDG_CONFIG_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.config XDG_DATA_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.local/share XDG_STATE_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.local/state XDG_CACHE_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.cache PATH=/home/gathu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /home/gathu/.local/share/theustad/plugin-venv/bin/python scripts/install_plugin.py
+UTC_TIMESTAMP: 2026-07-21T03:31:33Z
+CODEX_VERSION: codex-cli 0.144.6
+PYTHON_VERSION: Python 3.12.3
+OUTPUT_BEGIN
+{
+  "pluginId": "theustad@personal",
+  "name": "theustad",
+  "marketplaceName": "personal",
+  "version": "1.0.0",
+  "installedPath": "/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.codex/plugins/cache/personal/theustad/1.0.0",
+  "authPolicy": "ON_INSTALL"
+}
+THEUSTAD_PLUGIN_SOURCE /home/gathu/code/theustad
+THEUSTAD_PLUGIN_INSTALLED /home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/plugins/theustad
+THEUSTAD_PLUGIN_MARKETPLACE /home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.agents/plugins/marketplace.json
+OUTPUT_END
+EXIT_CODE: 0

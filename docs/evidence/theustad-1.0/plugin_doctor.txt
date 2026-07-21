@@ -1,0 +1,13 @@
+COMMAND: env HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG CODEX_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.codex XDG_CONFIG_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.config XDG_DATA_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.local/share XDG_STATE_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.local/state XDG_CACHE_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.cache PATH=/home/gathu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin THEUSTAD_STATE_HOME=/home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.local/state/theustad-release /home/gathu/.local/share/theustad/plugin-venv/bin/python /home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/plugins/theustad/scripts/theustad_plugin.py doctor --repo /home/gathu/code/theustad
+UTC_TIMESTAMP: 2026-07-21T03:31:36Z
+CODEX_VERSION: codex-cli 0.144.6
+PYTHON_VERSION: Python 3.12.3
+OUTPUT_BEGIN
+THEUSTAD_DOCTOR_REPO /home/gathu/code/theustad
+THEUSTAD_DOCTOR_PYTHON /home/gathu/.local/share/theustad/plugin-venv/bin/python (3.12.3)
+THEUSTAD_DOCTOR_CODEX /home/gathu/.local/bin/codex (codex-cli 0.144.6)
+THEUSTAD_DOCTOR_VERIFIER isolated pytest
+THEUSTAD_DOCTOR_STATE_HOME /home/gathu/.local/share/theustad/task8-codex-home-a562ec2-EULRbG/.local/state/theustad-release
+THEUSTAD_DOCTOR_OK
+OUTPUT_END
+EXIT_CODE: 0
