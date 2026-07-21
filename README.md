@@ -4,16 +4,23 @@
 
 > **Codex says "done." TheUstad checks whether that is true.**
 
-TheUstad is a verification-and-retry runtime for coding agents. It treats an
-agent's completion message as a claim, protects configured inputs, runs a
-trusted verifier, returns evidence to the exact child session, and records a
-tamper-evident audit chain.
+When I use a coding agent, I give it a goal or a prompt to build something. It works for a while and eventually says, “It’s done.” But when I check the work, it is sometimes incomplete or the full test suite is still failing. A completion message is only a claim.
+
+There is another problem: when a test keeps failing, an agent may change, weaken, or even delete that test instead of fixing the actual behavior. The test suite can become green while the underlying problem is still there.
 
 ## Why TheUstad exists
 
-An agent can write code, select a convenient test, and announce success inside
-one trust boundary. TheUstad separates generation from acceptance by requiring
-protected evidence before it accepts a completion claim.
+That is why I built TheUstad. “Ustad” means teacher. TheUstad does not simply trust the agent’s final message—it checks the evidence.
+
+Before the agent starts, TheUstad creates a fingerprint of protected inputs, including tests and verifier configuration. It then captures the agent’s final message, detects completion claims, checks that the protected files have not changed, and runs the configured verifier itself.
+
+If the agent says the work is complete but the verifier fails, the claim is marked FALSIFIED. If the agent changes or deletes a protected test, TheUstad marks the round TAMPERED, restores the original files, and sends the evidence back into the same Codex session so the agent can try again. Only an explicit completion claim supported by a passing verifier becomes VERIFIED.
+
+TheUstad also handles missing completion claims, incomplete work, agent crashes, and timeouts. Every round is written to a hash-chained audit log.
+
+VERIFIED does not mean that the software is guaranteed to be bug-free. It means that the agent’s completion claim matched the verifier selected by the user, with the protected inputs still intact.
+
+
 
 - [OpenAI's monitoring of internal coding agents](https://openai.com/index/how-we-monitor-internal-coding-agents-misalignment/)
   documents rare but high-severity reward-hacking behavior, including test edits.
