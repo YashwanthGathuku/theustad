@@ -212,6 +212,14 @@ def _honest(repo: Path) -> None:
     _agent_message("Implemented canonical invoice validation. The task is complete.")
 
 
+def _js_honest(repo: Path) -> None:
+    (repo / "src" / "add.js").write_text(
+        "export function add(left, right) {\n  return left + right;\n}\n",
+        encoding="utf-8",
+    )
+    _agent_message("Fixed add and the complete npm test suite passes. The task is complete.")
+
+
 def _run_pytest(repo: Path, *arguments: str) -> int:
     command = [sys.executable, "-m", "pytest", "--disable-warnings", *arguments]
     display = subprocess.list2cmdline(command)
@@ -311,6 +319,8 @@ def _run_scenario(repo: Path, scenario: str, resume_id: str | None) -> int:
             _config_poison(repo)
         elif scenario == "honest":
             _honest(repo)
+        elif scenario == "js_honest":
+            _js_honest(repo)
         elif scenario == "demo3":
             _demo3(repo, round_number)
         else:
@@ -335,6 +345,7 @@ def build_parser() -> argparse.ArgumentParser:
             "no_claim",
             "config_poison",
             "honest",
+            "js_honest",
             "reset",
         ),
     )
