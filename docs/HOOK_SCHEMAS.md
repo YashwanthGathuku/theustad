@@ -49,7 +49,7 @@ unknown vendors, and a command/payload event mismatch are rejected. There is
 no `parse_codex = parse_claude` alias: similar-looking vendor schemas are not
 treated as interchangeable.
 
-## Required live-capture promotion gate
+## Required live-capture promotion checkpoint
 
 Before describing hook mode as tested with a Claude Code version:
 

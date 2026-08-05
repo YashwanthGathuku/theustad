@@ -9,10 +9,10 @@ with the 83-line prototype would remove the shipped product.
 
 | Supplied file | Useful idea retained | Problem found | Current disposition |
 |---|---|---|---|
-| `theustad.py` | `enroll`, `status`, and fixed-policy `hook` commands | Imports obsolete `gatelib`; would overwrite the 512-line wrapper; emitted command paths were not safely quoted; no confirmed unenroll/audit workflow | Existing CLI extended compatibly; wrapper arguments still work |
+| `theustad.py` | `enroll`, `status`, and fixed-policy `hook` commands | Imports a retired pre-TheUstad library; would overwrite the 512-line wrapper; emitted command paths were not safely quoted; no confirmed unenroll/audit workflow | Existing CLI extended compatibly; wrapper arguments still work |
 | `enrollment.py` | External policy, manifest persistence, session counters | Session IDs were lossy-sanitized; state types and paths were weakly validated; active sessions reloaded mutable enrollment; no session-to-repo binding | Rebuilt as `theustadlib/enrollment.py` with hashed keys, atomic JSON, session policy copies, manifest path validation, and bindings |
 | `hookadapter.py` | `SessionStart` freeze + `Stop` verification; verifier always runs; pre/post checks | Used nonexistent `Claim.matched`; created a fresh audit chain for every hook; substring-matched `SubagentStop`/`StopFailure`; defaulted missing identity; re-froze on compaction; trusted Stop cwd; scraped lagging transcripts; retry exhaustion was silent; ignored in-flight work | Rebuilt against exact documented Claude events and `last_assistant_message`; continuous validated audit; compaction-safe baseline; bound repo; visible exhaustion; background-race block |
-| `INSTALL.md` | Small simulated tamper proof | Referenced `gatelib`, unsafe `python -m pytest -q`, and a stale `159 passed, 1 skipped` result | Replaced by `docs/HOOK_MODE_GUIDE.md`; current full suite evidence is generated locally |
+| `INSTALL.md` | Small simulated tamper proof | Referenced a retired pre-TheUstad library, unsafe `python -m pytest -q`, and a stale `159 passed, 1 skipped` result | Replaced by `docs/HOOK_MODE_GUIDE.md`; current full suite evidence is generated locally |
 | `HOOK_MODE_PROMPTS.md` | Evidence-first sequence and adversarial scenario list | Targeted old layout; treated ignored bytecode as harmless; contradicted itself on `PASS_NO_CLAIM`; called simulated payloads a reference implementation; did not resolve same-user/bootstrap limits | Requirements absorbed into code/tests/spec; guide now separates documentation fixtures from live proof |
 
 ## Security corrections implemented
@@ -57,6 +57,6 @@ with the 83-line prototype would remove the shipped product.
 - full CLI lifecycle tests for honest verification, deleted-test restoration,
   project hook-disable configuration, and chain validation.
 
-The remaining promotion gate is a live Claude Code schema capture and a real
+The remaining promotion requirement is a live Claude Code schema capture and a real
 `TAMPERED -> VERIFIED` recording. Until then, hook mode is experimental and
 documentation-fixture tested, not vendor-version certified.
