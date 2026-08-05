@@ -2,6 +2,7 @@
 """TheUstad 1.0 command-line orchestrator."""
 
 import argparse
+import json
 import os
 import shlex
 import sys
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from theustadlib.chain import AuditChain
+from theustadlib import enrollment, hookadapter
+from theustadlib.chain import verify as verify_audit_chain
 from theustadlib.claims import Claim, find_claims
 from theustadlib.freezer import (
     DEFAULT_PATTERNS,
@@ -396,6 +399,13 @@ def _positive(value: str) -> float:
     return parsed
 
 
+def _positive_integer(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return parsed
+
+
 def _command_argv(command: str, label: str) -> list[str]:
     argv = shlex.split(command)
     if not argv:
@@ -458,9 +468,198 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = build_parser()
+HOOK_COMMANDS = frozenset({"enroll", "status", "unenroll", "hook", "verify-chain"})
+
+
+def build_hook_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="theustad.py",
+        description="Manage fixed-policy automatic lifecycle hooks.",
+    )
+    commands = parser.add_subparsers(dest="hook_command", required=True)
+
+    enroll_parser = commands.add_parser("enroll")
+    enroll_parser.add_argument("--repo", required=True, type=Path)
+    enroll_parser.add_argument(
+        "--verifier", help="fixed verifier command; defaults to isolated pytest"
+    )
+    enroll_parser.add_argument(
+        "--protect",
+        action="append",
+        nargs="+",
+        metavar="PATTERN",
+        help="replace the hook-mode protected patterns",
+    )
+    enroll_parser.add_argument(
+        "--protect-add",
+        action="append",
+        nargs="+",
+        metavar="PATTERN",
+        help="append hook-mode protected patterns",
+    )
+    enroll_parser.add_argument("--timeout", type=_positive, default=300.0)
+    enroll_parser.add_argument(
+        "--max-blocks", type=_positive_integer, default=5, metavar="N"
+    )
+    enroll_parser.add_argument("--require-claim", action="store_true")
+
+    status_parser = commands.add_parser("status")
+    status_parser.add_argument("--repo", required=True, type=Path)
+
+    unenroll_parser = commands.add_parser("unenroll")
+    unenroll_parser.add_argument("--repo", required=True, type=Path)
+    unenroll_parser.add_argument(
+        "--yes", action="store_true", help="confirm removal of external policy"
+    )
+
+    hook_parser = commands.add_parser("hook", add_help=False)
+    hook_parser.add_argument("hook_argv", nargs=argparse.REMAINDER)
+
+    verify_parser = commands.add_parser("verify-chain")
+    verify_parser.add_argument("--repo", required=True, type=Path)
+    verify_parser.add_argument("--session-id")
+    verify_parser.add_argument("--vendor", default="claude")
+    return parser
+
+
+def _hook_patterns(args: argparse.Namespace) -> tuple[str, ...]:
+    base = (
+        _flatten_patterns(args.protect)
+        if args.protect
+        else enrollment.HOOK_PATTERNS
+    )
+    return (*base, *_flatten_patterns(args.protect_add))
+
+
+def _claude_hook_settings() -> dict[str, Any]:
+    python = str(Path(sys.executable).resolve(strict=True))
+    cli = str(Path(__file__).resolve(strict=True))
+
+    def command(event: str) -> str:
+        return shlex.join([python, cli, "hook", "claude", event])
+
+    return {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {"type": "command", "command": command("SessionStart")}
+                    ]
+                }
+            ],
+            "Stop": [
+                {
+                    "hooks": [
+                        {"type": "command", "command": command("Stop")}
+                    ]
+                }
+            ],
+        }
+    }
+
+
+def _enroll(args: argparse.Namespace) -> int:
+    repo = args.repo.resolve(strict=True)
+    verifier_argv = (
+        parse_verifier_command(args.verifier) if args.verifier else default_argv()
+    )
+    policy = enrollment.Policy(
+        repo=str(repo),
+        verifier_argv=tuple(verifier_argv),
+        patterns=_hook_patterns(args),
+        timeout=args.timeout,
+        max_blocks=args.max_blocks,
+        require_claim=args.require_claim,
+    )
+    policy_path = enrollment.save_policy(policy)
+    _console_output(f"ENROLLED {repo}")
+    _console_output(f"POLICY {policy_path}")
+    _console_output(f"STATE {enrollment.repository_state_dir(repo)}")
+    _console_output(f"VERIFIER {shlex.join(policy.verifier_argv)}")
+    _console_output(
+        "Merge this block into ~/.claude/settings.json, then inspect it with /hooks:"
+    )
+    _console_output(json.dumps(_claude_hook_settings(), indent=2))
+    return 0
+
+
+def _status(args: argparse.Namespace) -> int:
+    repo = args.repo.resolve(strict=False)
+    policy = enrollment.load_policy(repo)
+    if policy is None:
+        _console_output(f"NOT_ENROLLED {repo}")
+        return 1
+    audits = enrollment.audit_paths(repo)
+    _console_output(f"ENROLLED {policy.repo}")
+    _console_output(f"POLICY {enrollment.enrollment_path(repo)}")
+    _console_output(f"STATE {enrollment.repository_state_dir(repo)}")
+    _console_output(f"VERIFIER {shlex.join(policy.verifier_argv)}")
+    _console_output(f"PROTECTED_PATTERNS {len(policy.patterns)}")
+    _console_output(f"MAX_BLOCKS {policy.max_blocks}")
+    _console_output(f"REQUIRE_CLAIM {str(policy.require_claim).lower()}")
+    _console_output(f"AUDIT_CHAINS {len(audits)}")
+    return 0
+
+
+def _unenroll(args: argparse.Namespace) -> int:
+    repo = args.repo.resolve(strict=False)
+    if not args.yes:
+        _console_output(
+            f"REFUSED confirmation required; rerun with: "
+            f"{shlex.join([sys.executable, str(Path(__file__).resolve()), 'unenroll', '--repo', str(repo), '--yes'])}",
+            stream=sys.stderr,
+        )
+        return 2
+    removed = enrollment.delete_policy(repo)
+    _console_output(f"UNENROLLED {repo}" if removed else f"NOT_ENROLLED {repo}")
+    return 0 if removed else 1
+
+
+def _verify_hook_chains(args: argparse.Namespace) -> int:
+    repo = args.repo.resolve(strict=False)
+    if args.session_id:
+        binding = enrollment.load_binding(args.vendor, args.session_id)
+        if binding is None or Path(binding.repo) != repo:
+            _console_output("THEUSTAD_ERROR matching hook session not found", stream=sys.stderr)
+            return 2
+        paths = [Path(binding.audit_path)]
+    else:
+        paths = enrollment.audit_paths(repo)
+    if not paths:
+        _console_output(f"THEUSTAD_ERROR no hook audit chains for {repo}", stream=sys.stderr)
+        return 2
+    for path in paths:
+        count, root = verify_audit_chain(path)
+        _console_output(f"VALID {path}: {count} records, root {root}")
+    return 0
+
+
+def _hook_command(argv: Sequence[str]) -> int:
+    parser = build_hook_parser()
     args = parser.parse_args(argv)
+    try:
+        if args.hook_command == "enroll":
+            return _enroll(args)
+        if args.hook_command == "status":
+            return _status(args)
+        if args.hook_command == "unenroll":
+            return _unenroll(args)
+        if args.hook_command == "hook":
+            return hookadapter.main(args.hook_argv)
+        if args.hook_command == "verify-chain":
+            return _verify_hook_chains(args)
+        raise ValueError(f"unsupported hook command: {args.hook_command}")
+    except (OSError, RuntimeError, ValueError) as error:
+        _console_output(f"THEUSTAD_ERROR {error}", stream=sys.stderr)
+        return 2
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    values = list(sys.argv[1:] if argv is None else argv)
+    if values and values[0] in HOOK_COMMANDS:
+        return _hook_command(values)
+    parser = build_parser()
+    args = parser.parse_args(values)
 
     try:
         repo = args.repo.resolve(strict=True)

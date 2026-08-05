@@ -178,6 +178,8 @@ def test_copy_plugin_uses_allowlist_and_excludes_repo_and_cache_content(tmp_path
 
     assert (destination / "theustad.py").is_file()
     assert (destination / "theustadlib" / "session.py").is_file()
+    assert (destination / "theustadlib" / "enrollment.py").is_file()
+    assert (destination / "theustadlib" / "hookadapter.py").is_file()
     assert (destination / "skills" / "run" / "SKILL.md").is_file()
     assert (destination / "LICENSE").is_file()
     assert (destination / "NOTICE").is_file()
@@ -426,8 +428,9 @@ def test_readme_documents_complete_plugin_workflow_and_platform_boundary():
         "Linux, macOS, or WSL 2",
         "Native Windows",
         "separate TheUstad-controlled child",
-        "## Choose CLI or Codex plugin",
-        "Standalone CLI",
+        "## Choose an enforcement mode",
+        "Standalone wrapper",
+        "Claude Code hook (experimental)",
         "docs/demo/README.md",
         "docs/PLUGIN_GUIDE.md",
         "AGPL-3.0-or-later",

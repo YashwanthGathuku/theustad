@@ -89,3 +89,30 @@ def test_second_run_creates_distinct_timestamped_log_without_erasing_first(
     assert first.path != second.path
     assert first.path.read_bytes() == first_bytes
     assert sorted(tmp_path.glob("audit_*.jsonl")) == [first.path, second.path]
+
+
+def test_resume_validates_and_appends_to_one_continuous_chain(tmp_path):
+    first = _audit_chain(tmp_path)
+    first.append(round_number=0, kind="session", data={"event": "start"})
+
+    from theustadlib.chain import AuditChain, verify
+
+    resumed = AuditChain.resume(first.path, clock=lambda: FIXED_TIME)
+    resumed.append(round_number=1, kind="verdict", data={"verdict": "VERIFIED"})
+
+    assert resumed.path == first.path
+    assert verify(first.path) == (2, resumed.root)
+    records = [json.loads(line) for line in first.path.read_text().splitlines()]
+    assert [record["seq"] for record in records] == [0, 1]
+    assert records[1]["prev"] == records[0]["hash"]
+
+
+def test_resume_refuses_a_rewritten_chain(tmp_path):
+    chain = _audit_chain(tmp_path)
+    chain.append(round_number=0, kind="session", data={"event": "start"})
+    chain.path.write_text(chain.path.read_text().replace("start", "rewrite"))
+
+    from theustadlib.chain import AuditChain
+
+    with pytest.raises(ValueError, match="hash mismatch"):
+        AuditChain.resume(chain.path)

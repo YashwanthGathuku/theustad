@@ -53,6 +53,10 @@ Out of threat model, documented honestly:
   weak oracle strong.
 - A hostile human or same-user process outside the Codex sandbox can
   attack TheUstad state.
+- In hook mode, a host that never invokes the configured hook cannot be
+  policed by that hook. Non-managed user hooks can also be disabled by host
+  configuration. Wrapper mode, managed policy, or CI is required for that
+  stronger bootstrap boundary.
 - Kernel-level interference.
 - Legitimate edits to protected baseline tests. In v2, baseline tests
   are immutable by policy. A later version may run agent-authored tests
@@ -305,6 +309,41 @@ Also implement `naive2` and `crash`. The README and video must label
 `demo3` as scripted adversarial rehearsal, followed by a real Codex
 run.
 
+### 4.8a Experimental Claude Code hook mode
+
+Hook mode adds `theustadlib/enrollment.py` and
+`theustadlib/hookadapter.py` without replacing the wrapper runner.
+
+- `theustad.py enroll` stores a fixed verifier and protected patterns under
+  `THEUSTAD_HOME`, outside the enrolled repository.
+- Hook commands accept vendor and event only. Security-sensitive CLI options
+  are rejected before stdin is read or state is changed.
+- `SessionStart` freezes once and binds `vendor + session_id` to the canonical
+  enrolled repository. Resume, clear, and compact events must never re-freeze
+  a changed protected tree or reset the retry counter.
+- `Stop` always runs the verifier. Claim detection labels the verdict but does
+  not decide whether verification runs.
+- Claude's documented `last_assistant_message` field is authoritative for the
+  current Stop turn. Hook mode does not scrape the asynchronously written
+  transcript.
+- The bound repository, session policy, manifest, block counter, and audit path
+  are persisted in external state. Stop uses the binding, not its current cwd.
+- One audit chain is validated and reopened across separate hook processes.
+- Pre- and post-verifier tampering outranks a green verifier and is restored.
+- A Stop payload with in-flight background tasks or scheduled session wakeups
+  returns `BACKGROUND_ACTIVE` instead of racing the verifier against later edits.
+- `PASS_NO_CLAIM` can allow an ordinary response to end but remains explicitly
+  non-verified. `--require-claim` may instead block it.
+- Claude currently overrides repeated Stop blocking after eight continuations;
+  enrollment limits `max_blocks` to at most seven. Exhaustion ends with a
+  visible, audited `RETRY_EXHAUSTED`, never `VERIFIED`.
+- Project `.claude/settings*.json` files are protected as defense in depth, but
+  user-level or managed settings remain the actual invocation authority.
+
+Only the Claude adapter is in this increment. Official-document fixtures are
+not a substitute for a live payload capture; Codex and other adapters remain
+blocked on current vendor-specific evidence.
+
 ### 4.9 `demo_repo`
 
 Keep the supplied parser/invoice fixture unchanged at seed:
@@ -347,8 +386,9 @@ python -m pytest tests -q
 
 ## 6. Decisions and scope wall
 
-- **Wrapper over hooks:** v2 needs explicit session resume, verdict
-  control, and portable audit records. Hook integration is roadmap.
+- **Wrapper primary, hooks secondary:** wrapper/plugin mode remains the
+  highest-assurance boundary. Experimental hook mode reuses the freezer,
+  verifier, claims, and chain as a host-dependent automatic guardrail.
 - **Regex over LLM classifier:** deterministic and testable for the
   demo. It is explicitly heuristic.
 - **Immutable baseline tests:** edits/additions under protected paths
@@ -364,7 +404,7 @@ Out of scope until after submission:
 - Marketplace or token system.
 - LLM claim classification.
 - Multiple verifiers and HTML dashboard.
-- Codex hook plugin.
+- Codex and additional vendor hook adapters before live schema capture.
 - Native Windows support.
 - HMAC, signatures, or remote attestation.
 

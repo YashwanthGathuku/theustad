@@ -1,0 +1,11 @@
+{
+  "session_id": "fixture-session",
+  "transcript_path": "/tmp/claude-transcript.jsonl",
+  "cwd": "/tmp/theustad-fixture-repo",
+  "permission_mode": "default",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "The fix is complete and all tests pass.",
+  "background_tasks": [],
+  "session_crons": []
+}
