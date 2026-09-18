@@ -37,6 +37,9 @@ def test_run_warns_loudly_when_no_protected_input_matches(tmp_path):
         "def test_x():\n    assert True\n", encoding="utf-8"
     )
     state = tmp_path / "state"
+    # --cmd is parsed with POSIX shlex, which eats Windows backslashes.
+    python = Path(sys.executable).as_posix()
+    script = _agent_script(tmp_path).as_posix()
 
     result = subprocess.run(
         [
@@ -47,11 +50,11 @@ def test_run_warns_loudly_when_no_protected_input_matches(tmp_path):
             "--task",
             "Do the work.",
             "--cmd",
-            f"{sys.executable} {_agent_script(tmp_path)}",
+            f"{python} {script}",
             "--resume-cmd",
-            f"{sys.executable} {_agent_script(tmp_path)} {{thread_id}}",
+            f"{python} {script} {{thread_id}}",
             "--verifier",
-            f"{sys.executable} -B -m pytest -q spec",
+            f"{python} -B -m pytest -q spec",
             "--max-retries",
             "0",
             "--state-dir",

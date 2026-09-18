@@ -55,6 +55,10 @@ def _agent_script(tmp_path: Path) -> Path:
 
 
 def _run_theustad(repo: Path, state: Path, agent: Path, *extra: str):
+    # --cmd is parsed with POSIX shlex, which eats Windows backslashes, so
+    # paths embedded in a command string use forward slashes.
+    python = Path(sys.executable).as_posix()
+    script = agent.as_posix()
     return subprocess.run(
         [
             sys.executable,
@@ -64,9 +68,9 @@ def _run_theustad(repo: Path, state: Path, agent: Path, *extra: str):
             "--task",
             "Make add() return the sum.",
             "--cmd",
-            f"{sys.executable} {agent}",
+            f"{python} {script}",
             "--resume-cmd",
-            f"{sys.executable} {agent} {{thread_id}}",
+            f"{python} {script} {{thread_id}}",
             "--max-retries",
             "1",
             "--state-dir",
@@ -102,7 +106,7 @@ def test_custom_pytest_verifier_is_not_reported_as_tampering(tmp_path):
         tmp_path / "state",
         _agent_script(tmp_path),
         "--verifier",
-        f"{sys.executable} -m pytest -q",
+        f"{Path(sys.executable).as_posix()} -m pytest -q",
     )
 
     assert "TAMPERED" not in result.stdout, result.stdout
