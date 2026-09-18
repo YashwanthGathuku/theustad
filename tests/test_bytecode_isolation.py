@@ -251,3 +251,67 @@ def test_an_isolated_verifier_with_B_reaches_verified(tmp_path):
     assert "TAMPERED" not in result.stdout, result.stdout
     assert "FINAL VERIFIED" in result.stdout, result.stdout
     assert not (repo / "tests" / "__pycache__").exists()
+
+
+# Every interpreter-flag spelling worth distinguishing. The parser's verdict is
+# checked against what CPython actually does, not against what it was written
+# to expect: two earlier defects here were flag spellings that looked handled
+# and were not.
+_FLAG_SPELLINGS = [
+    [],
+    ["-B"],
+    ["-I"],
+    ["-E"],
+    ["-I", "-B"],
+    ["-IB"],
+    ["-BI"],
+    ["-I", "-s"],
+    ["-u", "-I"],
+    ["-I", "-X", "dev"],
+    ["-I", "-X", "utf8"],
+    ["-I", "-Xutf8"],
+    ["-I", "-W", "ignore"],
+    ["-I", "-Wignore"],
+    ["-I", "-X", "pycache_prefix"],
+    ["-I", "-X", "pycache_prefix="],
+    ["-IX", "pycache_prefix="],
+    ["-I", "-X", "pycache_prefix=PLACEHOLDER"],
+    ["-IX", "pycache_prefix=PLACEHOLDER"],
+    ["-I", "-X", "utf8", "-B"],
+]
+
+
+def _writes_bytecode_beside_source(flags: list[str], tmp_path: Path) -> bool:
+    """Run CPython with these flags and report whether it left a __pycache__."""
+    protected = tmp_path / "protected"
+    protected.mkdir()
+    (protected / "probe_mod.py").write_text("VALUE = 1\n", encoding="utf-8")
+    code = f"import sys; sys.path.insert(0, {str(protected)!r}); import probe_mod"
+    result = subprocess.run(
+        [sys.executable, *flags, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert result.returncode == 0, (flags, result.stderr)
+    return (protected / "__pycache__").exists()
+
+
+@pytest.mark.parametrize("flags", _FLAG_SPELLINGS, ids=lambda f: " ".join(f) or "bare")
+def test_the_parser_agrees_with_cpython_on_every_flag_spelling(flags, tmp_path):
+    from theustadlib.verifier import ignores_bytecode_environment
+
+    cache = tmp_path / "redirected"
+    resolved = [flag.replace("PLACEHOLDER", str(cache)) for flag in flags]
+
+    wrote = _writes_bytecode_beside_source(resolved, tmp_path)
+    refused = ignores_bytecode_environment([sys.executable, *resolved, "-m", "pytest"])
+
+    # A verifier that writes beside the source must be refused; one that does
+    # not must be accepted. Either mismatch is a defect.
+    assert refused == wrote, (
+        f"{' '.join(resolved) or '(no flags)'}: parser says "
+        f"{'refuse' if refused else 'accept'} but CPython "
+        f"{'wrote' if wrote else 'did not write'} bytecode beside the source"
+    )
