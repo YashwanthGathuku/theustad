@@ -1,6 +1,7 @@
 # Hook schema evidence
 
-Last checked against the official Claude Code hooks reference on 2026-08-04.
+Last checked against the official Claude Code hooks reference on 2026-08-04;
+the hook `timeout` section below was checked on 2026-09-18.
 These are documentation-derived fixtures, not a claim that a local Claude Code
 binary has been exercised.
 
@@ -41,6 +42,22 @@ arrays return `BACKGROUND_ACTIVE` so the verifier does not race in-flight or
 scheduled edits. These arrays are documented for Claude Code v2.1.145 or later.
 
 Fixture: `tests/fixtures/hooks/claude/stop_claim.json`.
+
+## Hook `timeout` (emitted, not parsed)
+
+This is the one field TheUstad *writes* into the host configuration rather than
+reading from a payload.
+
+- `timeout`: seconds, inside the command-hook object.
+- Documented default for a `command` hook: 600.
+- On reaching it the host cancels the hook, **discards its output**, and on
+  most events renders no decision.
+
+That last point is why the field matters: an omitted timeout leaves the host
+default in force, and a verifier permitted to outlive the hook turns a blocking
+verdict into a silent pass. `theustad.py enroll` therefore always emits an
+explicit value and refuses any policy whose verifier deadline is not at least
+`MIN_HOOK_MARGIN` seconds below it. See the hook-timeout section of the README.
 
 ## Fail-closed parsing
 
