@@ -2,10 +2,13 @@
 """TheUstad 1.0 command-line orchestrator."""
 
 import argparse
+import json
+import math
 import os
 import shlex
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
@@ -13,6 +16,8 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from theustadlib.chain import AuditChain
+from theustadlib import enrollment, hookadapter
+from theustadlib.chain import verify as verify_audit_chain
 from theustadlib.claims import Claim, find_claims
 from theustadlib.freezer import (
     DEFAULT_PATTERNS,
@@ -137,6 +142,12 @@ STATUS_REQUEST = (
     "completion claim. Reply once with an explicit completion status."
 )
 
+NO_PROTECTED_INPUTS = (
+    "THEUSTAD_WARNING no protected inputs matched; TAMPERED can never be "
+    "reported for this run. Point --protect/--protect-add at the real test "
+    "and verifier-configuration paths before trusting the verdict."
+)
+
 
 class TheUstadRunner:
     """Execute TheUstad's ordered verification-and-retry loop."""
@@ -245,6 +256,16 @@ class TheUstadRunner:
     def run(self) -> TheUstadResult:
         manifest = freeze(self.repo, self.patterns, self.state_dir)
         audit = AuditChain(self.log_dir)
+        self.output(f"PROTECTED {len(manifest.entries)} paths")
+        if not manifest.entries:
+            # An empty manifest silently voids the whole anti-tampering
+            # guarantee, so it must never be indistinguishable from a real one.
+            audit.append(
+                round_number=0,
+                kind="warning",
+                data={"message": NO_PROTECTED_INPUTS, "patterns": list(self.patterns)},
+            )
+            self.output(NO_PROTECTED_INPUTS)
         rounds: list[RoundResult] = []
         resume_message: str | None = None
         status_resume_used = False
@@ -396,6 +417,13 @@ def _positive(value: str) -> float:
     return parsed
 
 
+def _positive_integer(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return parsed
+
+
 def _command_argv(command: str, label: str) -> list[str]:
     argv = shlex.split(command)
     if not argv:
@@ -405,12 +433,35 @@ def _command_argv(command: str, label: str) -> list[str]:
     return argv
 
 
+TASK_FILE_SUFFIXES = frozenset({".md", ".markdown", ".rst", ".txt"})
+
+
+def _looks_like_task_path(value: str) -> bool:
+    """Report whether ``--task`` was meant as a file rather than inline text."""
+    if value != value.strip() or len(value.split()) != 1:
+        return False
+    candidate = Path(value)
+    if candidate.suffix.lower() in TASK_FILE_SUFFIXES:
+        return True
+    separators = {separator for separator in (os.sep, os.altsep) if separator}
+    if not any(separator in value for separator in separators):
+        return False
+    # A separator alone is not enough: "refactor/rename" is an instruction,
+    # not a path. Treat it as a path only when the directory it names exists.
+    parent = candidate.parent
+    return parent != Path(".") and parent.is_dir()
+
+
 def _task_text(value: str | None) -> str:
     if value is None:
         return "Complete the repository task and report an explicit status."
     candidate = Path(value)
     if candidate.is_file():
         return candidate.read_text(encoding="utf-8")
+    if _looks_like_task_path(value):
+        # Silently prompting the agent with a mistyped path burns the whole
+        # retry budget and records a meaningless audit chain.
+        raise ValueError(f"task file not found: {candidate}")
     return value
 
 
@@ -458,9 +509,285 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = build_parser()
+HOOK_COMMANDS = frozenset({"enroll", "status", "unenroll", "hook", "verify-chain"})
+
+
+def build_hook_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="theustad.py",
+        description="Manage fixed-policy automatic lifecycle hooks.",
+    )
+    commands = parser.add_subparsers(dest="hook_command", required=True)
+
+    enroll_parser = commands.add_parser("enroll")
+    enroll_parser.add_argument("--repo", required=True, type=Path)
+    enroll_parser.add_argument(
+        "--verifier", help="fixed verifier command; defaults to isolated pytest"
+    )
+    enroll_parser.add_argument(
+        "--protect",
+        action="append",
+        nargs="+",
+        metavar="PATTERN",
+        help="replace the hook-mode protected patterns",
+    )
+    enroll_parser.add_argument(
+        "--protect-add",
+        action="append",
+        nargs="+",
+        metavar="PATTERN",
+        help="append hook-mode protected patterns",
+    )
+    enroll_parser.add_argument("--timeout", type=_positive, default=300.0)
+    enroll_parser.add_argument(
+        "--hook-timeout",
+        type=_positive,
+        help=(
+            "seconds emitted as the host hook timeout; defaults to the verifier "
+            f"deadline plus {enrollment.MIN_HOOK_MARGIN:g}s"
+        ),
+    )
+    enroll_parser.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="time the verifier first and refuse an unsafe hook timeout",
+    )
+    enroll_parser.add_argument(
+        "--max-blocks", type=_positive_integer, default=5, metavar="N"
+    )
+    enroll_parser.add_argument("--require-claim", action="store_true")
+
+    status_parser = commands.add_parser("status")
+    status_parser.add_argument("--repo", required=True, type=Path)
+
+    unenroll_parser = commands.add_parser("unenroll")
+    unenroll_parser.add_argument("--repo", required=True, type=Path)
+    unenroll_parser.add_argument(
+        "--yes", action="store_true", help="confirm removal of external policy"
+    )
+
+    hook_parser = commands.add_parser("hook", add_help=False)
+    hook_parser.add_argument("hook_argv", nargs=argparse.REMAINDER)
+
+    verify_parser = commands.add_parser("verify-chain")
+    verify_parser.add_argument("--repo", required=True, type=Path)
+    verify_parser.add_argument("--session-id")
+    verify_parser.add_argument("--vendor", default="claude")
+    return parser
+
+
+def _hook_patterns(args: argparse.Namespace) -> tuple[str, ...]:
+    base = (
+        _flatten_patterns(args.protect)
+        if args.protect
+        else enrollment.HOOK_PATTERNS
+    )
+    return (*base, *_flatten_patterns(args.protect_add))
+
+
+def _claude_hook_settings(hook_timeout: float) -> dict[str, Any]:
+    python = str(Path(sys.executable).resolve(strict=True))
+    cli = str(Path(__file__).resolve(strict=True))
+    # An omitted timeout leaves the host's default in force, which may sit
+    # below the verifier deadline; a cancelled hook renders no decision.
+    timeout = int(math.ceil(hook_timeout))
+
+    def entry(event: str) -> dict[str, Any]:
+        return {
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": shlex.join([python, cli, "hook", "claude", event]),
+                    "timeout": timeout,
+                }
+            ]
+        }
+
+    return {"hooks": {"SessionStart": [entry("SessionStart")], "Stop": [entry("Stop")]}}
+
+
+def _calibrate(
+    repo: Path, verifier_argv: Sequence[str], timeout: float, runs: int = 3
+) -> tuple[float, bool]:
+    """Time the verifier under the deadline TheUstad will actually enforce.
+
+    Measuring against the outer hook budget instead would accept a verifier
+    that finishes inside the hook timeout but never inside its own deadline,
+    so every real Stop would time out and the run could never verify.
+    """
+    durations: list[float] = []
+    timed_out = False
+    for attempt in range(1, runs + 1):
+        started = time.monotonic()
+        result = run_verifier(verifier_argv, repo, timeout)
+        elapsed = time.monotonic() - started
+        durations.append(elapsed)
+        _console_output(
+            f"CALIBRATE run {attempt}/{runs} {elapsed:.1f}s exit {result.exit_code}"
+            + (" TIMEOUT" if result.timed_out else "")
+        )
+        if result.timed_out:
+            # The outcome is already decided; further runs only burn deadlines.
+            timed_out = True
+            break
+    # Nearest-rank p95; with three runs that is the slowest one, stated plainly.
+    ordered = sorted(durations)
+    index = min(len(ordered) - 1, math.ceil(0.95 * len(ordered)) - 1)
+    return ordered[index], timed_out
+
+
+def _enroll(args: argparse.Namespace) -> int:
+    repo = args.repo.resolve(strict=True)
+    verifier_argv = (
+        parse_verifier_command(args.verifier, repo)
+        if args.verifier
+        else default_argv()
+    )
+    hook_timeout = args.hook_timeout
+    if hook_timeout is None:
+        hook_timeout = args.timeout + enrollment.MIN_HOOK_MARGIN
+
+    if hook_timeout < args.timeout + enrollment.MIN_HOOK_MARGIN - 1e-6:
+        # Pure arithmetic: fail before spending three verifier runs on it.
+        raise ValueError(
+            f"hook timeout {hook_timeout:g}s leaves less than "
+            f"{enrollment.MIN_HOOK_MARGIN:g}s above the {args.timeout:g}s "
+            "verifier deadline; the host would cancel the hook and render no "
+            f"decision. Use --hook-timeout "
+            f"{math.ceil(args.timeout + enrollment.MIN_HOOK_MARGIN)} "
+            "or lower --timeout."
+        )
+
+    if args.calibrate:
+        p95, timed_out = _calibrate(repo, verifier_argv, args.timeout)
+        _console_output(f"CALIBRATE p95 {p95:.1f}s (slowest of 3 runs)")
+        if timed_out or p95 >= args.timeout:
+            raise ValueError(
+                f"verifier p95 {p95:.1f}s does not fit the {args.timeout:g}s "
+                "verifier deadline, so every Stop would time out and the run "
+                f"could never verify. Rerun with --timeout {math.ceil(p95) + 1} "
+                "or faster tests."
+            )
+        # The hook budget needs no separate check here: the static relation
+        # above already guarantees hook_timeout >= timeout + margin, and p95
+        # is now known to be under timeout.
+        _console_output(
+            f"CALIBRATE fits VERIFIER_DEADLINE {args.timeout:g}s and "
+            f"HOOK_TIMEOUT {hook_timeout:g}s"
+        )
+
+    policy = enrollment.Policy(
+        repo=str(repo),
+        verifier_argv=tuple(verifier_argv),
+        patterns=_hook_patterns(args),
+        timeout=args.timeout,
+        max_blocks=args.max_blocks,
+        require_claim=args.require_claim,
+        hook_timeout=hook_timeout,
+    )
+    policy_path = enrollment.save_policy(policy)
+    _console_output(f"ENROLLED {repo}")
+    _console_output(f"POLICY {policy_path}")
+    _console_output(f"STATE {enrollment.repository_state_dir(repo)}")
+    _console_output(f"VERIFIER {shlex.join(policy.verifier_argv)}")
+    _console_output(f"VERIFIER_DEADLINE {policy.timeout:g}s")
+    _console_output(f"HOOK_TIMEOUT {policy.hook_timeout:g}s")
+    _console_output(
+        "Merge this block into ~/.claude/settings.json, then inspect it with /hooks:"
+    )
+    _console_output(json.dumps(_claude_hook_settings(policy.hook_timeout), indent=2))
+    return 0
+
+
+def _status(args: argparse.Namespace) -> int:
+    repo = args.repo.resolve(strict=False)
+    policy = enrollment.load_policy(repo)
+    if policy is None:
+        _console_output(f"NOT_ENROLLED {repo}")
+        return 1
+    audits = enrollment.audit_paths(repo)
+    _console_output(f"ENROLLED {policy.repo}")
+    _console_output(f"POLICY {enrollment.enrollment_path(repo)}")
+    _console_output(f"STATE {enrollment.repository_state_dir(repo)}")
+    _console_output(f"VERIFIER {shlex.join(policy.verifier_argv)}")
+    _console_output(f"VERIFIER_DEADLINE {policy.timeout:g}s")
+    _console_output(f"HOOK_TIMEOUT {policy.hook_timeout:g}s")
+    _console_output(f"PROTECTED_PATTERNS {len(policy.patterns)}")
+    _console_output(f"MAX_BLOCKS {policy.max_blocks}")
+    _console_output(f"REQUIRE_CLAIM {str(policy.require_claim).lower()}")
+    _console_output(f"AUDIT_CHAINS {len(audits)}")
+    return 0
+
+
+def _unenroll(args: argparse.Namespace) -> int:
+    repo = args.repo.resolve(strict=False)
+    if not args.yes:
+        _console_output(
+            f"REFUSED confirmation required; rerun with: "
+            f"{shlex.join([sys.executable, str(Path(__file__).resolve()), 'unenroll', '--repo', str(repo), '--yes'])}",
+            stream=sys.stderr,
+        )
+        return 2
+    removed = enrollment.delete_policy(repo)
+    _console_output(f"UNENROLLED {repo}" if removed else f"NOT_ENROLLED {repo}")
+    return 0 if removed else 1
+
+
+def _verify_hook_chains(args: argparse.Namespace) -> int:
+    repo = args.repo.resolve(strict=False)
+    if args.session_id:
+        binding = enrollment.load_binding(args.vendor, args.session_id)
+        if binding is None or Path(binding.repo) != repo:
+            _console_output("THEUSTAD_ERROR matching hook session not found", stream=sys.stderr)
+            return 2
+        paths = [Path(binding.audit_path)]
+    else:
+        paths = enrollment.audit_paths(repo)
+    if not paths:
+        _console_output(f"THEUSTAD_ERROR no hook audit chains for {repo}", stream=sys.stderr)
+        return 2
+    failures = 0
+    for path in paths:
+        try:
+            count, root = verify_audit_chain(path)
+        except (OSError, ValueError) as error:
+            # One unreadable chain must not hide the verdict on every other.
+            failures += 1
+            _console_output(f"BROKEN {path}: {error}", stream=sys.stderr)
+            continue
+        _console_output(f"VALID {path}: {count} records, root {root}")
+    return 2 if failures else 0
+
+
+def _hook_command(argv: Sequence[str]) -> int:
+    parser = build_hook_parser()
     args = parser.parse_args(argv)
+    try:
+        if args.hook_command == "enroll":
+            return _enroll(args)
+        if args.hook_command == "status":
+            return _status(args)
+        if args.hook_command == "unenroll":
+            return _unenroll(args)
+        if args.hook_command == "hook":
+            return hookadapter.main(args.hook_argv)
+        if args.hook_command == "verify-chain":
+            return _verify_hook_chains(args)
+        raise ValueError(f"unsupported hook command: {args.hook_command}")
+    except Exception as error:
+        # Never let an unexpected exception pick the exit code for us.
+        _console_output(
+            f"THEUSTAD_ERROR {type(error).__name__}: {error}", stream=sys.stderr
+        )
+        return 2
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    values = list(sys.argv[1:] if argv is None else argv)
+    if values and values[0] in HOOK_COMMANDS:
+        return _hook_command(values)
+    parser = build_parser()
+    args = parser.parse_args(values)
 
     try:
         repo = args.repo.resolve(strict=True)
@@ -476,7 +803,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else list(DEFAULT_RESUME_TEMPLATE)
         )
         verifier_argv = (
-            parse_verifier_command(args.verifier)
+            parse_verifier_command(args.verifier, repo)
             if args.verifier
             else default_argv()
         )
@@ -503,8 +830,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout=args.timeout,
         )
         return runner.run().exit_code
-    except (OSError, ValueError, RuntimeError) as error:
-        _console_output(f"THEUSTAD_ERROR {error}", stream=sys.stderr)
+    except Exception as error:
+        _console_output(
+            f"THEUSTAD_ERROR {type(error).__name__}: {error}", stream=sys.stderr
+        )
         return 2
 
 

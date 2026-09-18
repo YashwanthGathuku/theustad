@@ -92,15 +92,21 @@ codex plugin list --json
 The list must show `theustad@personal` as installed and enabled. Restart Codex
 after installation, then follow [the plugin guide](docs/PLUGIN_GUIDE.md).
 
-## Choose CLI or Codex plugin
+## Choose an enforcement mode
 
-| Interface | Use it for | Entry point |
-|---|---|---|
-| Standalone CLI | CI, automation, direct review | `python theustad.py --repo ... --task ...` |
-| Codex plugin | A protected coding task in Codex | `$theustad:doctor`, `$theustad:run`, `$theustad:audit` |
+| Interface | Assurance | Use it for | Entry point |
+|---|---|---|---|
+| Standalone wrapper | Highest | CI, automation, direct review | `python theustad.py --repo ... --task ...` |
+| Codex plugin | Highest | A protected child coding task in Codex | `$theustad:doctor`, `$theustad:run`, `$theustad:audit` |
+| Claude Code hook (experimental) | Guardrail | Automatic verification when Claude tries to stop | `theustad.py enroll` + `SessionStart`/`Stop` hooks |
 
-Use one interface per working tree at a time. Both write the same verdicts and
-SHA-256 audit-chain format.
+Use one interface per working tree at a time. All modes use the same protected
+verifier concepts and SHA-256 audit-chain format.
+
+Wrapper mode remains the strongest boundary because TheUstad owns and
+terminates the agent process. Hook mode depends on the host actually invoking
+the configured hook and is therefore an automatic guardrail, not an
+independent process boundary.
 
 ## Standalone CLI
 
@@ -141,6 +147,62 @@ Remove the canonical package with:
 codex plugin remove theustad@personal --json
 ```
 
+## Experimental Claude Code hook mode
+
+Hook mode keeps invocation authority in user-level configuration instead of
+asking the agent to call TheUstad. `SessionStart` freezes protected inputs into
+external state; `Stop` loads that same session baseline, checks tampering,
+runs the fixed enrolled verifier, and returns failure evidence with exit code
+2 so Claude continues working.
+
+```bash
+python theustad.py enroll --repo /absolute/path/to/project --calibrate
+# Merge the emitted JSON into ~/.claude/settings.json.
+# Start a new Claude Code session in the enrolled repository, then use /hooks
+# to confirm both commands come from User Settings.
+```
+
+### Hook timeout
+
+A host that cancels a hook at its timeout discards the hook's output and
+renders no decision, so a verifier allowed to outlive the hook turns a blocking
+result into a silent pass. `enroll` therefore emits an explicit `timeout` in
+the hook configuration rather than inheriting the host default, and refuses any
+enrollment whose verifier deadline is not at least 15 seconds below it:
+
+```text
+VERIFIER_DEADLINE 300s
+HOOK_TIMEOUT 315s
+```
+
+`--hook-timeout` sets the emitted value directly. `--calibrate` runs the
+verifier three times under the verifier deadline it will actually be given, and
+refuses to enroll unless the slowest run fits **both** budgets: inside the
+verifier deadline, and inside the hook timeout with the margin to spare. A
+verifier that fits the hook budget but not its own deadline would time out on
+every Stop and never verify, so that is refused too, naming the value to use
+instead of writing a policy that cannot work. A verifier that exceeds its
+deadline at run time is killed by process group and reported as
+`VERIFIER_TIMEOUT` with exit code 2, which blocks.
+
+The hook entry point refuses `--verifier`, `--repo`, `--protect`, timeout, and
+state arguments. It binds the initial `session_id` to the enrolled repository,
+preserves the original baseline across resume/compact `SessionStart` events,
+uses Claude's documented `last_assistant_message` Stop field, defers while
+background or scheduled session work is pending, checks protected inputs before
+and after verification, and appends every event to one continuous validated
+audit chain.
+
+Only the Claude Code adapter is implemented. Its fixtures follow the current
+[official hook schema](https://code.claude.com/docs/en/hooks), but a real local
+schema capture and live-fire run are still required before calling a specific
+Claude Code version tested. Codex and other vendor hook adapters remain
+unimplemented until their real payloads and enforcement semantics are captured.
+See the [hook-mode and local Codex guide](docs/HOOK_MODE_GUIDE.md).
+The [prototype review](docs/HOOK_MODE_REVIEW.md) records which supplied ideas
+were retained, which attacks were reproduced, and why the old files were not
+copied directly.
+
 ## Custom verifiers and protected inputs
 
 The default verifier is pytest from the trusted absolute interpreter in
@@ -158,6 +220,29 @@ python theustad.py --repo /absolute/path/to/project \
 The custom verifier is the acceptance oracle for that run. Protect all inputs
 it needs before starting; protected files are checked before and after
 verification, and changed inputs are restored and reported as `TAMPERED`.
+
+TheUstad starts both the agent and the verifier with
+`PYTHONDONTWRITEBYTECODE=1`. Without it, an ordinary `pytest` run writes
+`tests/__pycache__/*.pyc` inside the protected tree, and the very next manifest
+check reports an honest round as `TAMPERED`. A `.pyc` file that TheUstad did not
+cause is still reported, so planted bytecode remains detectable.
+
+Isolated Python ignores that variable: `-I` implies `-E`, which drops every
+`PYTHON*` setting. A custom verifier such as `python -I -m pytest -q` is
+therefore refused, because it would fail an honest run. Add `-B`, or
+`-X pycache_prefix=DIR` — both are command-line options that isolated mode still
+honours. The default verifier already passes `-B`.
+
+A cache prefix must resolve **outside** the repository. It is resolved against
+the verifier's working directory, so a repository-relative value such as
+`-X pycache_prefix=tests/cache` writes its parallel bytecode tree straight into
+the protected paths it was meant to avoid; TheUstad refuses those too, naming
+the path the prefix resolves to.
+
+If the configured patterns match nothing, TheUstad prints `PROTECTED 0 paths`
+with a warning and records it in the audit chain: a run with an empty baseline
+can never reach `TAMPERED`, so its `VERIFIED` result carries no anti-tampering
+guarantee.
 
 On WSL, make sure every custom-verifier executable is WSL-native before
 starting TheUstad. For example, check both `command -v node` and
@@ -255,6 +340,15 @@ operating-system security boundary against a hostile user, process, or kernel.
 `VERIFIED` means the explicit custom verifier or default protected verifier
 passed after a completion claim. It does not prove every product requirement or
 guarantee absence of defects.
+
+Hook mode has a narrower boundary. User-level policy and snapshots live outside
+the repository, but a same-OS-user agent with unrestricted filesystem access
+can still modify them. A repository can also attempt to disable non-managed
+Claude hooks. TheUstad protects project hook files as defense in depth when the
+Stop hook still runs, but only managed host policy, wrapper mode, or CI can
+address the bootstrap case where the host never invokes TheUstad. Retry
+exhaustion is recorded and surfaced as `FINAL RETRY_EXHAUSTED`; it is never
+renamed `VERIFIED`.
 
 ## License and attribution
 

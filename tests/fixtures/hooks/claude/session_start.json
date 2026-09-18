@@ -1,0 +1,8 @@
+{
+  "session_id": "fixture-session",
+  "transcript_path": "/tmp/claude-transcript.jsonl",
+  "cwd": "/tmp/theustad-fixture-repo",
+  "hook_event_name": "SessionStart",
+  "source": "startup",
+  "model": "claude-sonnet-5"
+}

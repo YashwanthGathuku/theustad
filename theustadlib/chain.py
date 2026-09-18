@@ -27,6 +27,61 @@ def _canonical_json(value: dict[str, Any]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+def verify(path: str | os.PathLike[str]) -> tuple[int, str]:
+    """Validate an existing audit chain and return ``(count, root)``.
+
+    Hook mode spans multiple processes, so it must reopen one chain without
+    trusting the last line.  Recomputing every record here keeps the append
+    path byte-compatible with the independent ``verify_chain.py`` oracle.
+    """
+    audit_path = Path(path)
+    if audit_path.is_symlink() or not audit_path.is_file():
+        raise ValueError(f"audit path is not a regular file: {audit_path}")
+
+    previous = ZERO_ROOT
+    count = 0
+    with audit_path.open("rb") as audit:
+        for line_number, raw_line in enumerate(audit):
+            try:
+                line = raw_line.decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise ValueError(
+                    f"broken audit chain at seq {line_number}: invalid UTF-8"
+                ) from error
+            try:
+                stored = json.loads(line)
+            except json.JSONDecodeError as error:
+                raise ValueError(
+                    f"broken audit chain at seq {line_number}: invalid JSON"
+                ) from error
+            if not isinstance(stored, dict):
+                raise ValueError(
+                    f"broken audit chain at seq {line_number}: record is not an object"
+                )
+            claimed = stored.pop("hash", None)
+            if stored.get("seq") != line_number:
+                raise ValueError(
+                    f"broken audit chain at seq {line_number}: sequence mismatch"
+                )
+            if stored.get("prev") != previous:
+                raise ValueError(
+                    f"broken audit chain at seq {line_number}: prev-link mismatch"
+                )
+            actual = hashlib.sha256(
+                (previous + _canonical_json(stored)).encode("utf-8")
+            ).hexdigest()
+            if claimed != actual:
+                raise ValueError(
+                    f"broken audit chain at seq {line_number}: hash mismatch"
+                )
+            previous = actual
+            count += 1
+    if count == 0:
+        # An emptied or truncated log attests nothing; both oracles refuse it.
+        raise ValueError("broken audit chain at seq 0: audit chain is empty")
+    return count, previous
+
+
 class AuditChain:
     """Write one fresh, oracle-compatible audit log."""
 
@@ -37,6 +92,24 @@ class AuditChain:
         self.path = self._create_log(_utc(self._clock()))
         self.root = ZERO_ROOT
         self.count = 0
+
+    @classmethod
+    def resume(
+        cls,
+        path: str | os.PathLike[str],
+        *,
+        clock: Clock | None = None,
+    ) -> "AuditChain":
+        """Reopen one validated chain for append-only hook invocations."""
+        audit_path = Path(path).resolve(strict=True)
+        count, root = verify(audit_path)
+        chain = cls.__new__(cls)
+        chain.directory = audit_path.parent
+        chain._clock = clock or (lambda: datetime.now(timezone.utc))
+        chain.path = audit_path
+        chain.root = root
+        chain.count = count
+        return chain
 
     def _create_log(self, started_at: datetime) -> Path:
         candidate_time = started_at
