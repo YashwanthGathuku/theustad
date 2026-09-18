@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Sequence
 
 from .childenv import child_environment
@@ -16,6 +16,61 @@ from .childenv import child_environment
 TAIL_LINES = 30
 TIMEOUT_EXIT_CODE = 124
 _SHELL_OPERATOR_CHARS = frozenset("|&;<>")
+# Options whose short-flag cluster consumes a value, ending the cluster.
+_VALUE_OPTIONS = frozenset("XWQ")
+
+
+def _is_python_interpreter(argument: str) -> bool:
+    name = PurePath(argument).name.lower()
+    if name.endswith(".exe"):
+        name = name[: -len(".exe")]
+    if name in ("py", "pythonw"):
+        return True
+    if not name.startswith("python"):
+        return False
+    suffix = name[len("python") :]
+    return suffix == "" or all(character in "0123456789." for character in suffix)
+
+
+def ignores_bytecode_environment(argv: Sequence[str]) -> bool:
+    """Report a Python verifier that cannot be told to skip bytecode.
+
+    ``-I`` implies ``-E``, so isolated Python ignores every ``PYTHON*``
+    variable including ``PYTHONDONTWRITEBYTECODE``.  Such a verifier writes
+    ``__pycache__`` into the protected tree and the post-verifier check then
+    reports an honest run as TAMPERED.  ``-B`` and ``-X pycache_prefix=`` are
+    command-line options, which isolated mode still honours.
+    """
+    if not argv or not _is_python_interpreter(argv[0]):
+        return False
+
+    ignores_environment = False
+    suppresses_bytecode = False
+    index = 1
+    while index < len(argv):
+        token = argv[index]
+        if token in ("-m", "-c", "--") or not token.startswith("-"):
+            break
+        letters = token[1:]
+        if letters.startswith("-"):
+            index += 1
+            continue
+        consumed_value = False
+        for position, letter in enumerate(letters):
+            if letter in ("I", "E"):
+                ignores_environment = True
+            elif letter == "B":
+                suppresses_bytecode = True
+            elif letter in _VALUE_OPTIONS:
+                value = letters[position + 1 :]
+                if not value and index + 1 < len(argv):
+                    value = argv[index + 1]
+                    consumed_value = True
+                if letter == "X" and value.startswith("pycache_prefix="):
+                    suppresses_bytecode = True
+                break
+        index += 2 if consumed_value else 1
+    return ignores_environment and not suppresses_bytecode
 
 
 @dataclass(frozen=True)
@@ -44,6 +99,13 @@ def parse_command(command: str) -> list[str]:
         for character in _SHELL_OPERATOR_CHARS
     ):
         raise ValueError("shell operators are unsupported in verifier commands")
+    if ignores_bytecode_environment(argv):
+        raise ValueError(
+            "isolated Python ignores PYTHONDONTWRITEBYTECODE, so this verifier "
+            "would write bytecode into the protected tree and report an honest "
+            "run as TAMPERED; add -B, or -X pycache_prefix=DIR pointing outside "
+            "the repository"
+        )
     return argv
 
 

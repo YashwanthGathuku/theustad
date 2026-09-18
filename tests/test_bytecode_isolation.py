@@ -181,3 +181,67 @@ def test_agent_subprocess_receives_the_hardened_environment(tmp_path, monkeypatc
     session.start("task")
 
     assert captured["env"]["PYTHONDONTWRITEBYTECODE"] == "1"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "{python} -I -m pytest -q",
+        "{python} -E -m pytest -q",
+        "{python} -I script.py",
+        "{python} -IE -m pytest",
+        "py -I -m pytest",
+    ],
+)
+def test_a_verifier_that_ignores_the_bytecode_variable_is_refused(command):
+    # -I implies -E, so isolated Python never sees PYTHONDONTWRITEBYTECODE and
+    # would write into the protected tree, failing an honest run as TAMPERED.
+    from theustadlib.verifier import parse_command
+
+    with pytest.raises(ValueError, match="isolated Python"):
+        parse_command(command.format(python=Path(sys.executable).as_posix()))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "{python} -I -B -m pytest -q",
+        "{python} -IB -m pytest -q",
+        "{python} -B -I -m pytest -q",
+        "{python} -m pytest -q",
+        "{python} -I -X pycache_prefix=/tmp/theustad-cache -m pytest",
+        "{python} -IX pycache_prefix=/tmp/theustad-cache -m pytest",
+        "npm test",
+        "pytest -q",
+    ],
+)
+def test_a_verifier_that_cannot_write_protected_bytecode_is_accepted(command):
+    from theustadlib.verifier import parse_command
+
+    argv = parse_command(command.format(python=Path(sys.executable).as_posix()))
+
+    assert argv
+
+
+def test_the_default_verifier_is_accepted_by_its_own_rule():
+    from theustadlib.verifier import default_argv, ignores_bytecode_environment
+
+    assert not ignores_bytecode_environment(default_argv())
+
+
+def test_an_isolated_verifier_with_B_reaches_verified(tmp_path):
+    repo = tmp_path / "repo"
+    _seed_repo(repo)
+    python = Path(sys.executable).as_posix()
+
+    result = _run_theustad(
+        repo,
+        tmp_path / "state",
+        _agent_script(tmp_path),
+        "--verifier",
+        f"{python} -I -B -m pytest -q",
+    )
+
+    assert "TAMPERED" not in result.stdout, result.stdout
+    assert "FINAL VERIFIED" in result.stdout, result.stdout
+    assert not (repo / "tests" / "__pycache__").exists()

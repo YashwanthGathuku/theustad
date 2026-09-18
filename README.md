@@ -224,6 +224,13 @@ TheUstad starts both the agent and the verifier with
 check reports an honest round as `TAMPERED`. A `.pyc` file that TheUstad did not
 cause is still reported, so planted bytecode remains detectable.
 
+Isolated Python ignores that variable: `-I` implies `-E`, which drops every
+`PYTHON*` setting. A custom verifier such as `python -I -m pytest -q` is
+therefore refused, because it would fail an honest run. Add `-B`, or
+`-X pycache_prefix=DIR` pointing outside the repository — both are command-line
+options that isolated mode still honours. The default verifier already passes
+`-B`.
+
 If the configured patterns match nothing, TheUstad prints `PROTECTED 0 paths`
 with a warning and records it in the audit chain: a run with an empty baseline
 can never reach `TAMPERED`, so its `VERIFIED` result carries no anti-tampering
