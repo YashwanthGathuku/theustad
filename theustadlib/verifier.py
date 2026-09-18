@@ -18,6 +18,7 @@ TIMEOUT_EXIT_CODE = 124
 _SHELL_OPERATOR_CHARS = frozenset("|&;<>")
 # Options whose short-flag cluster consumes a value, ending the cluster.
 _VALUE_OPTIONS = frozenset("XWQ")
+_PYCACHE_PREFIX = "pycache_prefix="
 
 
 def _is_python_interpreter(argument: str) -> bool:
@@ -66,8 +67,12 @@ def ignores_bytecode_environment(argv: Sequence[str]) -> bool:
                 if not value and index + 1 < len(argv):
                     value = argv[index + 1]
                     consumed_value = True
-                if letter == "X" and value.startswith("pycache_prefix="):
-                    suppresses_bytecode = True
+                if letter == "X" and value.startswith(_PYCACHE_PREFIX):
+                    # CPython reads an empty value as no prefix at all
+                    # (sys.pycache_prefix is None), so bytecode still lands
+                    # beside the source.  Only a real path redirects it.
+                    if value[len(_PYCACHE_PREFIX) :]:
+                        suppresses_bytecode = True
                 break
         index += 2 if consumed_value else 1
     return ignores_environment and not suppresses_bytecode

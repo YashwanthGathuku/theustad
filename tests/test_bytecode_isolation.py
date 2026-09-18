@@ -191,6 +191,12 @@ def test_agent_subprocess_receives_the_hardened_environment(tmp_path, monkeypatc
         "{python} -I script.py",
         "{python} -IE -m pytest",
         "py -I -m pytest",
+        # CPython reads an empty prefix as no prefix: sys.pycache_prefix is
+        # None and bytecode still lands beside the source.
+        "{python} -I -X pycache_prefix= -m pytest",
+        "{python} -IX pycache_prefix= -m pytest",
+        # -X pycache_prefix with no value at all sets no prefix either.
+        "{python} -I -X pycache_prefix -m pytest",
     ],
 )
 def test_a_verifier_that_ignores_the_bytecode_variable_is_refused(command):
