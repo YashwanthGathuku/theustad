@@ -20,16 +20,22 @@ def main(path):
     prev = "0" * 64
     n = 0
     try:
-        handle = open(path, "r", encoding="utf-8")
+        # Binary mode keeps decoding inside the handler below: a text-mode
+        # iterator raises UnicodeDecodeError from the for statement itself.
+        handle = open(path, "rb")
     except OSError as error:
         print(f"ERROR cannot read audit chain: {error}", file=sys.stderr)
         sys.exit(2)
 
     with handle:
-        for i, line in enumerate(handle):
+        for i, raw in enumerate(handle):
+            try:
+                line = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                _broken(i, "invalid UTF-8")
             try:
                 rec = json.loads(line)
-            except (UnicodeDecodeError, ValueError):
+            except ValueError:
                 _broken(i, "invalid JSON")
             if not isinstance(rec, dict):
                 _broken(i, "record is not an object")

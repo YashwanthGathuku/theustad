@@ -40,8 +40,14 @@ def verify(path: str | os.PathLike[str]) -> tuple[int, str]:
 
     previous = ZERO_ROOT
     count = 0
-    with audit_path.open("r", encoding="utf-8") as audit:
-        for line_number, line in enumerate(audit):
+    with audit_path.open("rb") as audit:
+        for line_number, raw_line in enumerate(audit):
+            try:
+                line = raw_line.decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise ValueError(
+                    f"broken audit chain at seq {line_number}: invalid UTF-8"
+                ) from error
             try:
                 stored = json.loads(line)
             except json.JSONDecodeError as error:

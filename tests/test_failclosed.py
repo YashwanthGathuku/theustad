@@ -1,7 +1,7 @@
 """Invariant I5: an internal failure must block, never pick its own exit code.
 
 Claude Code treats exit 1 from a Stop hook as a non-blocking error, so an
-unhandled exception anywhere in the gate lets the agent stop with no decision
+unhandled exception anywhere in TheUstad lets the agent stop with no decision
 rendered. Every stage is fault-injected here; all of them must yield exit 2.
 """
 

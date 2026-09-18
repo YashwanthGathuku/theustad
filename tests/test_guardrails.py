@@ -185,6 +185,20 @@ def test_malformed_records_report_broken_rather_than_a_traceback(tmp_path):
         assert "Traceback" not in result.stderr, name
 
 
+def test_invalid_utf8_reports_broken_rather_than_a_traceback(tmp_path):
+    # Decoding happens in the file iterator, not in the json.loads call.
+    log = tmp_path / "bad-utf8.jsonl"
+    log.write_bytes(b'{"seq": 0, "prev": "x", "hash": "y", "d": "\xff\xfe"}\n')
+
+    result = _oracle(log)
+
+    assert result.returncode == 1
+    assert result.stdout.strip() == "BROKEN at seq 0: invalid UTF-8"
+    assert "Traceback" not in result.stderr
+    with pytest.raises(ValueError, match="invalid UTF-8"):
+        verify(log)
+
+
 def test_reordered_sequence_numbers_are_broken(tmp_path):
     chain = AuditChain(tmp_path)
     for index in range(3):
