@@ -156,11 +156,31 @@ runs the fixed enrolled verifier, and returns failure evidence with exit code
 2 so Claude continues working.
 
 ```bash
-python theustad.py enroll --repo /absolute/path/to/project
+python theustad.py enroll --repo /absolute/path/to/project --calibrate
 # Merge the emitted JSON into ~/.claude/settings.json.
 # Start a new Claude Code session in the enrolled repository, then use /hooks
 # to confirm both commands come from User Settings.
 ```
+
+### Hook timeout
+
+A host that cancels a hook at its timeout discards the hook's output and
+renders no decision, so a verifier allowed to outlive the hook turns a blocking
+result into a silent pass. `enroll` therefore emits an explicit `timeout` in
+the hook configuration rather than inheriting the host default, and refuses any
+enrollment whose verifier deadline is not at least 15 seconds below it:
+
+```text
+VERIFIER_DEADLINE 300s
+HOOK_TIMEOUT 315s
+```
+
+`--hook-timeout` sets the emitted value directly. `--calibrate` runs the
+verifier three times first, reports the slowest run as p95, and refuses to
+enroll when that plus the margin would not fit — naming the minimum safe
+`--hook-timeout` instead of writing a policy that fails open. A verifier that
+exceeds its own deadline is killed by process group and reported as
+`VERIFIER_TIMEOUT` with exit code 2, which blocks.
 
 The hook entry point refuses `--verifier`, `--repo`, `--protect`, timeout, and
 state arguments. It binds the initial `session_id` to the enrolled repository,

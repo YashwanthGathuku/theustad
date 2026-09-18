@@ -23,6 +23,11 @@ from .freezer import DEFAULT_PATTERNS, Manifest, ManifestEntry
 DEFAULT_HOME = "~/.theustad"
 POLICY_VERSION = 1
 MAX_CLAUDE_BLOCKS = 7
+# A host that cancels a hook at its timeout discards the hook's output and
+# renders no decision, so a verifier allowed to outlive the hook turns a
+# blocking result into a silent pass.  The verifier deadline must therefore
+# sit strictly below the hook timeout, with room for TheUstad's own work.
+MIN_HOOK_MARGIN = 15.0
 HOOK_PATTERNS = (
     *DEFAULT_PATTERNS,
     ".claude/settings.json",
@@ -154,6 +159,7 @@ class Policy:
     timeout: float = 300.0
     max_blocks: int = 5
     require_claim: bool = False
+    hook_timeout: float | None = None
     version: int = POLICY_VERSION
 
     def __post_init__(self) -> None:
@@ -181,6 +187,25 @@ class Policy:
             )
         if not isinstance(self.require_claim, bool):
             raise ValueError("require_claim must be boolean")
+        hook_timeout = self.hook_timeout
+        if hook_timeout is None:
+            hook_timeout = self.timeout + MIN_HOOK_MARGIN
+        if isinstance(hook_timeout, bool) or not isinstance(
+            hook_timeout, (int, float)
+        ):
+            raise ValueError("hook timeout must be numeric")
+        hook_timeout = float(hook_timeout)
+        if not math.isfinite(hook_timeout) or hook_timeout <= 0:
+            raise ValueError("hook timeout must be positive")
+        if hook_timeout - self.timeout < MIN_HOOK_MARGIN:
+            raise ValueError(
+                f"hook timeout {hook_timeout:g}s leaves less than "
+                f"{MIN_HOOK_MARGIN:g}s above the {self.timeout:g}s verifier "
+                "deadline; the host would cancel the hook and render no "
+                f"decision. Use --hook-timeout {self.timeout + MIN_HOOK_MARGIN:g} "
+                "or lower --timeout."
+            )
+        object.__setattr__(self, "hook_timeout", hook_timeout)
         if isinstance(self.version, bool) or not isinstance(self.version, int):
             raise ValueError("policy version must be an integer")
         if self.version != POLICY_VERSION:
@@ -215,6 +240,11 @@ class Policy:
                 timeout=float(value.get("timeout", 300.0)),
                 max_blocks=int(value.get("max_blocks", 5)),
                 require_claim=require_claim,
+                hook_timeout=(
+                    float(value["hook_timeout"])
+                    if value.get("hook_timeout") is not None
+                    else None
+                ),
                 version=int(value.get("version", POLICY_VERSION)),
             )
         except (KeyError, TypeError, ValueError) as error:

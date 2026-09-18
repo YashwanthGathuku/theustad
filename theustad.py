@@ -3,10 +3,12 @@
 
 import argparse
 import json
+import math
 import os
 import shlex
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
@@ -532,6 +534,19 @@ def build_hook_parser() -> argparse.ArgumentParser:
     )
     enroll_parser.add_argument("--timeout", type=_positive, default=300.0)
     enroll_parser.add_argument(
+        "--hook-timeout",
+        type=_positive,
+        help=(
+            "seconds emitted as the host hook timeout; defaults to the verifier "
+            f"deadline plus {enrollment.MIN_HOOK_MARGIN:g}s"
+        ),
+    )
+    enroll_parser.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="time the verifier first and refuse an unsafe hook timeout",
+    )
+    enroll_parser.add_argument(
         "--max-blocks", type=_positive_integer, default=5, metavar="N"
     )
     enroll_parser.add_argument("--require-claim", action="store_true")
@@ -564,31 +579,44 @@ def _hook_patterns(args: argparse.Namespace) -> tuple[str, ...]:
     return (*base, *_flatten_patterns(args.protect_add))
 
 
-def _claude_hook_settings() -> dict[str, Any]:
+def _claude_hook_settings(hook_timeout: float) -> dict[str, Any]:
     python = str(Path(sys.executable).resolve(strict=True))
     cli = str(Path(__file__).resolve(strict=True))
+    # An omitted timeout leaves the host's default in force, which may sit
+    # below the verifier deadline; a cancelled hook renders no decision.
+    timeout = int(math.ceil(hook_timeout))
 
-    def command(event: str) -> str:
-        return shlex.join([python, cli, "hook", "claude", event])
-
-    return {
-        "hooks": {
-            "SessionStart": [
+    def entry(event: str) -> dict[str, Any]:
+        return {
+            "hooks": [
                 {
-                    "hooks": [
-                        {"type": "command", "command": command("SessionStart")}
-                    ]
+                    "type": "command",
+                    "command": shlex.join([python, cli, "hook", "claude", event]),
+                    "timeout": timeout,
                 }
-            ],
-            "Stop": [
-                {
-                    "hooks": [
-                        {"type": "command", "command": command("Stop")}
-                    ]
-                }
-            ],
+            ]
         }
-    }
+
+    return {"hooks": {"SessionStart": [entry("SessionStart")], "Stop": [entry("Stop")]}}
+
+
+def _calibrate(
+    repo: Path, verifier_argv: Sequence[str], hook_timeout: float, runs: int = 3
+) -> float:
+    """Time the verifier and report the deadline the measurement supports."""
+    durations: list[float] = []
+    for attempt in range(1, runs + 1):
+        started = time.monotonic()
+        result = run_verifier(verifier_argv, repo, hook_timeout)
+        elapsed = time.monotonic() - started
+        durations.append(elapsed)
+        _console_output(
+            f"CALIBRATE run {attempt}/{runs} {elapsed:.1f}s exit {result.exit_code}"
+        )
+    # Nearest-rank p95; with three runs that is the slowest one, stated plainly.
+    ordered = sorted(durations)
+    index = min(len(ordered) - 1, math.ceil(0.95 * len(ordered)) - 1)
+    return ordered[index]
 
 
 def _enroll(args: argparse.Namespace) -> int:
@@ -596,6 +624,23 @@ def _enroll(args: argparse.Namespace) -> int:
     verifier_argv = (
         parse_verifier_command(args.verifier) if args.verifier else default_argv()
     )
+    hook_timeout = args.hook_timeout
+    if hook_timeout is None:
+        hook_timeout = args.timeout + enrollment.MIN_HOOK_MARGIN
+
+    if args.calibrate:
+        p95 = _calibrate(repo, verifier_argv, hook_timeout)
+        required = p95 + enrollment.MIN_HOOK_MARGIN
+        _console_output(f"CALIBRATE p95 {p95:.1f}s (slowest of 3 runs)")
+        if required >= hook_timeout:
+            raise ValueError(
+                f"verifier p95 {p95:.1f}s needs a hook timeout of at least "
+                f"{math.ceil(required)}s; {hook_timeout:g}s would be cancelled by "
+                f"the host, which renders no decision. Rerun with --hook-timeout "
+                f"{math.ceil(required)} or faster tests."
+            )
+        _console_output(f"CALIBRATE safe under HOOK_TIMEOUT {hook_timeout:g}s")
+
     policy = enrollment.Policy(
         repo=str(repo),
         verifier_argv=tuple(verifier_argv),
@@ -603,16 +648,19 @@ def _enroll(args: argparse.Namespace) -> int:
         timeout=args.timeout,
         max_blocks=args.max_blocks,
         require_claim=args.require_claim,
+        hook_timeout=hook_timeout,
     )
     policy_path = enrollment.save_policy(policy)
     _console_output(f"ENROLLED {repo}")
     _console_output(f"POLICY {policy_path}")
     _console_output(f"STATE {enrollment.repository_state_dir(repo)}")
     _console_output(f"VERIFIER {shlex.join(policy.verifier_argv)}")
+    _console_output(f"VERIFIER_DEADLINE {policy.timeout:g}s")
+    _console_output(f"HOOK_TIMEOUT {policy.hook_timeout:g}s")
     _console_output(
         "Merge this block into ~/.claude/settings.json, then inspect it with /hooks:"
     )
-    _console_output(json.dumps(_claude_hook_settings(), indent=2))
+    _console_output(json.dumps(_claude_hook_settings(policy.hook_timeout), indent=2))
     return 0
 
 
@@ -627,6 +675,8 @@ def _status(args: argparse.Namespace) -> int:
     _console_output(f"POLICY {enrollment.enrollment_path(repo)}")
     _console_output(f"STATE {enrollment.repository_state_dir(repo)}")
     _console_output(f"VERIFIER {shlex.join(policy.verifier_argv)}")
+    _console_output(f"VERIFIER_DEADLINE {policy.timeout:g}s")
+    _console_output(f"HOOK_TIMEOUT {policy.hook_timeout:g}s")
     _console_output(f"PROTECTED_PATTERNS {len(policy.patterns)}")
     _console_output(f"MAX_BLOCKS {policy.max_blocks}")
     _console_output(f"REQUIRE_CLAIM {str(policy.require_claim).lower()}")
