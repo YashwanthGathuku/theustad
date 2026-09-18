@@ -226,5 +226,71 @@ def test_unreadable_audit_chain_reports_an_error_not_a_traceback(tmp_path):
 
     assert result.returncode == 2
     assert result.stdout == ""
-    assert result.stderr.startswith("ERROR cannot read audit chain:")
+    assert result.stderr.startswith("ERROR ")
     assert "Traceback" not in result.stderr
+
+
+def test_both_oracles_refuse_a_symlinked_audit_path(tmp_path):
+    """A link target can be swapped between the check and the read."""
+    chain = AuditChain(tmp_path)
+    chain.append(round_number=1, kind="verdict", data={"v": "X"})
+    link = tmp_path / "linked.jsonl"
+    link.symlink_to(chain.path)
+
+    result = _oracle(link)
+
+    assert result.returncode == 2
+    assert "not a regular file" in result.stderr
+    with pytest.raises(ValueError, match="not a regular file"):
+        verify(link)
+
+
+def test_verify_chain_reports_every_repository_chain_past_a_broken_one(
+    tmp_path, monkeypatch
+):
+    """One stray zero-byte log must not hide the verdict on the real ones."""
+    from theustadlib import enrollment
+    from theustadlib.verifier import default_argv
+
+    monkeypatch.setenv("THEUSTAD_HOME", str(tmp_path / "home"))
+    repo = tmp_path / "repo"
+    (repo / "tests").mkdir(parents=True)
+    (repo / "tests" / "test_ok.py").write_text(
+        "def test_ok():\n    assert True\n", encoding="utf-8"
+    )
+    enrollment.save_policy(
+        enrollment.Policy(repo=str(repo), verifier_argv=tuple(default_argv()))
+    )
+    state = enrollment.session_state_dir(repo, "claude", "s-1")
+    logs = state / "logs"
+    logs.mkdir(parents=True)
+    good = AuditChain(logs)
+    good.append(round_number=0, kind="session", data={"event": "start"})
+    # Sorted first, so a fail-fast loop would never reach the real chain.
+    (logs / "audit_19700101_000000.jsonl").write_text("", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "theustad.py"),
+            "verify-chain",
+            "--repo",
+            str(repo),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=ROOT,
+        env={"THEUSTAD_HOME": str(tmp_path / "home"), "PATH": "/usr/bin:/bin"},
+    )
+
+    assert result.returncode == 2
+    assert "BROKEN" in result.stderr
+    assert f"VALID {good.path}" in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize(
+    "value", ["refactor/rename", "fix/AUTH-12", "and/or", "src/main"]
+)
+def test_a_one_word_instruction_containing_a_separator_is_still_text(value):
+    assert theustad._task_text(value) == value

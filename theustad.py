@@ -440,10 +440,16 @@ def _looks_like_task_path(value: str) -> bool:
     """Report whether ``--task`` was meant as a file rather than inline text."""
     if value != value.strip() or len(value.split()) != 1:
         return False
-    separators = {separator for separator in (os.sep, os.altsep) if separator}
-    if any(separator in value for separator in separators):
+    candidate = Path(value)
+    if candidate.suffix.lower() in TASK_FILE_SUFFIXES:
         return True
-    return Path(value).suffix.lower() in TASK_FILE_SUFFIXES
+    separators = {separator for separator in (os.sep, os.altsep) if separator}
+    if not any(separator in value for separator in separators):
+        return False
+    # A separator alone is not enough: "refactor/rename" is an instruction,
+    # not a path. Treat it as a path only when the directory it names exists.
+    parent = candidate.parent
+    return parent != Path(".") and parent.is_dir()
 
 
 def _task_text(value: str | None) -> str:
@@ -616,11 +622,14 @@ def _calibrate(
         result = run_verifier(verifier_argv, repo, timeout)
         elapsed = time.monotonic() - started
         durations.append(elapsed)
-        timed_out = timed_out or result.timed_out
         _console_output(
             f"CALIBRATE run {attempt}/{runs} {elapsed:.1f}s exit {result.exit_code}"
             + (" TIMEOUT" if result.timed_out else "")
         )
+        if result.timed_out:
+            # The outcome is already decided; further runs only burn deadlines.
+            timed_out = True
+            break
     # Nearest-rank p95; with three runs that is the slowest one, stated plainly.
     ordered = sorted(durations)
     index = min(len(ordered) - 1, math.ceil(0.95 * len(ordered)) - 1)
@@ -638,6 +647,17 @@ def _enroll(args: argparse.Namespace) -> int:
     if hook_timeout is None:
         hook_timeout = args.timeout + enrollment.MIN_HOOK_MARGIN
 
+    if hook_timeout < args.timeout + enrollment.MIN_HOOK_MARGIN - 1e-6:
+        # Pure arithmetic: fail before spending three verifier runs on it.
+        raise ValueError(
+            f"hook timeout {hook_timeout:g}s leaves less than "
+            f"{enrollment.MIN_HOOK_MARGIN:g}s above the {args.timeout:g}s "
+            "verifier deadline; the host would cancel the hook and render no "
+            f"decision. Use --hook-timeout "
+            f"{math.ceil(args.timeout + enrollment.MIN_HOOK_MARGIN)} "
+            "or lower --timeout."
+        )
+
     if args.calibrate:
         p95, timed_out = _calibrate(repo, verifier_argv, args.timeout)
         _console_output(f"CALIBRATE p95 {p95:.1f}s (slowest of 3 runs)")
@@ -648,14 +668,9 @@ def _enroll(args: argparse.Namespace) -> int:
                 f"could never verify. Rerun with --timeout {math.ceil(p95) + 1} "
                 "or faster tests."
             )
-        required = p95 + enrollment.MIN_HOOK_MARGIN
-        if required >= hook_timeout:
-            raise ValueError(
-                f"verifier p95 {p95:.1f}s needs a hook timeout of at least "
-                f"{math.ceil(required)}s; {hook_timeout:g}s would be cancelled by "
-                f"the host, which renders no decision. Rerun with --hook-timeout "
-                f"{math.ceil(required)} or faster tests."
-            )
+        # The hook budget needs no separate check here: the static relation
+        # above already guarantees hook_timeout >= timeout + margin, and p95
+        # is now known to be under timeout.
         _console_output(
             f"CALIBRATE fits VERIFIER_DEADLINE {args.timeout:g}s and "
             f"HOOK_TIMEOUT {hook_timeout:g}s"
@@ -731,10 +746,17 @@ def _verify_hook_chains(args: argparse.Namespace) -> int:
     if not paths:
         _console_output(f"THEUSTAD_ERROR no hook audit chains for {repo}", stream=sys.stderr)
         return 2
+    failures = 0
     for path in paths:
-        count, root = verify_audit_chain(path)
+        try:
+            count, root = verify_audit_chain(path)
+        except (OSError, ValueError) as error:
+            # One unreadable chain must not hide the verdict on every other.
+            failures += 1
+            _console_output(f"BROKEN {path}: {error}", stream=sys.stderr)
+            continue
         _console_output(f"VALID {path}: {count} records, root {root}")
-    return 0
+    return 2 if failures else 0
 
 
 def _hook_command(argv: Sequence[str]) -> int:

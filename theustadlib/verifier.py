@@ -19,6 +19,9 @@ _SHELL_OPERATOR_CHARS = frozenset("|&;<>")
 # Options whose short-flag cluster consumes a value, ending the cluster.
 _VALUE_OPTIONS = frozenset("XWQ")
 _PYCACHE_PREFIX = "pycache_prefix="
+# The only CPython long option that takes a separate value; skipping it
+# without its value would end the scan on the value token.
+_VALUE_LONG_OPTIONS = frozenset({"--check-hash-based-pycs"})
 
 
 def _is_python_interpreter(argument: str) -> bool:
@@ -42,7 +45,22 @@ class InterpreterFlags:
     pycache_prefix: str | None
 
 
-def scan_interpreter_flags(argv: Sequence[str]) -> InterpreterFlags:
+def interpreter_index(argv: Sequence[str]) -> int | None:
+    """Find the Python interpreter, looking past a launcher that wraps it.
+
+    ``env python -I ...``, ``uv run python -I ...`` and ``poetry run python
+    -I ...`` all hide the interpreter behind another argv[0]; reading only
+    argv[0] would skip the check entirely for every one of them.
+    """
+    for index, token in enumerate(argv):
+        if _is_python_interpreter(token):
+            return index
+    return None
+
+
+def scan_interpreter_flags(
+    argv: Sequence[str], start: int = 1
+) -> InterpreterFlags:
     """Read the interpreter flags that decide whether bytecode is written.
 
     Scanning stops at ``-m``, ``-c``, ``--`` or the script, so arguments
@@ -52,14 +70,14 @@ def scan_interpreter_flags(argv: Sequence[str]) -> InterpreterFlags:
     suppresses_writes = False
     pycache_prefix: str | None = None
 
-    index = 1
+    index = start
     while index < len(argv):
         token = argv[index]
         if token in ("-m", "-c", "--") or not token.startswith("-"):
             break
         letters = token[1:]
         if letters.startswith("-"):
-            index += 1
+            index += 2 if token in _VALUE_LONG_OPTIONS else 1
             continue
         consumed_value = False
         for position, letter in enumerate(letters):
@@ -98,9 +116,10 @@ def ignores_bytecode_environment(argv: Sequence[str]) -> bool:
     still honours.  Where a prefix *sends* the bytecode is a separate
     question -- see ``bytecode_conflict``.
     """
-    if not argv or not _is_python_interpreter(argv[0]):
+    index = interpreter_index(argv)
+    if index is None:
         return False
-    flags = scan_interpreter_flags(argv)
+    flags = scan_interpreter_flags(argv, index + 1)
     if not flags.ignores_environment:
         return False
     return not (flags.suppresses_writes or flags.pycache_prefix)
@@ -116,9 +135,10 @@ def bytecode_conflict(
     repository-relative value such as ``tests/cache`` writes a parallel tree
     straight into the protected paths it was meant to avoid.
     """
-    if not argv or not _is_python_interpreter(argv[0]):
+    index = interpreter_index(argv)
+    if index is None:
         return None
-    flags = scan_interpreter_flags(argv)
+    flags = scan_interpreter_flags(argv, index + 1)
     if not flags.ignores_environment or flags.suppresses_writes:
         return None
 

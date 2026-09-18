@@ -523,19 +523,23 @@ def main(argv: Sequence[str]) -> int:
         if not isinstance(payload, dict):
             raise ValueError("hook payload must be a JSON object")
         response = dispatch(vendor, payload, expected_event=expected_event)
+        # Emitting is inside the guard too: a BrokenPipeError or an
+        # unserializable payload here would otherwise escape as exit 1.
+        if response.stdout is not None:
+            print(json.dumps(response.stdout, sort_keys=True))
+        if response.stderr:
+            print(response.stderr, file=sys.stderr)
+        return response.exit_code
     except Exception as error:
         # Exit 1 is non-blocking in Claude Code, so an unhandled exception here
         # would let the agent stop with no decision rendered.  Every failure,
         # expected or not, must still block.
-        print(
-            f"TheUstad hook error: {INTERNAL_ERROR} "
-            f"{type(error).__name__}: {error}",
-            file=sys.stderr,
-        )
+        try:
+            print(
+                f"TheUstad hook error: {INTERNAL_ERROR} "
+                f"{type(error).__name__}: {error}",
+                file=sys.stderr,
+            )
+        except Exception:  # the stream itself is gone; the exit code still speaks
+            pass
         return BLOCK
-
-    if response.stdout is not None:
-        print(json.dumps(response.stdout, sort_keys=True))
-    if response.stderr:
-        print(response.stderr, file=sys.stderr)
-    return response.exit_code

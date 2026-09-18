@@ -406,3 +406,50 @@ def test_both_entry_points_pass_the_repository_to_the_verifier_parser():
     source = (ROOT / "theustad.py").read_text(encoding="utf-8")
 
     assert source.count("parse_verifier_command(args.verifier, repo)") == 2
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "/usr/bin/env {python} -I -m pytest -q",
+        "/usr/bin/env -u PYTHONPATH {python} -I -m pytest",
+        "uv run {python} -I -m pytest",
+        "poetry run {python} -I -m pytest",
+    ],
+)
+def test_a_launcher_cannot_hide_isolated_python(command):
+    """argv[0] is the launcher, so reading only argv[0] would skip the check."""
+    from theustadlib.verifier import parse_command
+
+    with pytest.raises(ValueError, match="isolated Python"):
+        parse_command(command.format(python=Path(sys.executable).as_posix()))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "{python} -I --check-hash-based-pycs never -B -m pytest -q",
+        "{python} -I --check-hash-based-pycs always -B -m pytest",
+        "{python} --check-hash-based-pycs default -I -B -m pytest",
+    ],
+)
+def test_a_long_option_with_a_value_does_not_end_the_flag_scan(command):
+    """Its value must not be mistaken for the script, hiding the -B after it."""
+    from theustadlib.verifier import parse_command
+
+    assert parse_command(command.format(python=Path(sys.executable).as_posix()))
+
+
+def test_a_launcher_wrapping_a_safe_interpreter_is_still_accepted():
+    from theustadlib.verifier import parse_command
+
+    python = Path(sys.executable).as_posix()
+
+    assert parse_command(f"/usr/bin/env {python} -I -B -m pytest -q")
+
+
+def test_a_non_python_verifier_is_untouched_by_launcher_detection():
+    from theustadlib.verifier import parse_command
+
+    assert parse_command("npm test")
+    assert parse_command("/usr/bin/env npm test")

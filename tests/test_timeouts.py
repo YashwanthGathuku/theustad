@@ -166,7 +166,8 @@ def _enroll(tmp_path, repo, *extra):
     )
 
 
-def test_calibrate_refuses_an_unsafe_hook_timeout_without_enrolling(tmp_path):
+def test_an_impossible_hook_budget_is_refused_before_the_verifier_runs(tmp_path):
+    """Pure arithmetic must not cost three verifier runs to discover."""
     repo = _repo(tmp_path)
     slow = tmp_path / "slow.py"
     slow.write_text("import time\ntime.sleep(2)\n", encoding="utf-8")
@@ -176,8 +177,6 @@ def test_calibrate_refuses_an_unsafe_hook_timeout_without_enrolling(tmp_path):
         repo,
         "--verifier",
         f"{Path(sys.executable).as_posix()} {slow.as_posix()}",
-        # Fits its own deadline, but leaves under the margin below the hook
-        # budget, so the host would cancel the hook and render no decision.
         "--timeout",
         "5",
         "--hook-timeout",
@@ -186,7 +185,8 @@ def test_calibrate_refuses_an_unsafe_hook_timeout_without_enrolling(tmp_path):
     )
 
     assert result.returncode == 2, result.stdout
-    assert "needs a hook timeout of at least" in result.stderr
+    assert "leaves less than 15s above" in result.stderr
+    assert "CALIBRATE" not in result.stdout, "verifier was run despite a doomed budget"
     assert not (tmp_path / "home" / "enrollments").exists()
 
 
@@ -286,3 +286,57 @@ def test_calibrate_accepts_a_verifier_that_fits_both_budgets(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert "CALIBRATE fits VERIFIER_DEADLINE 5s and HOOK_TIMEOUT 25s" in result.stdout
+
+
+def test_the_derived_margin_never_rejects_itself(tmp_path):
+    """(t + 15.0) - t rounds below 15.0 in binary floating point for many t."""
+    rejected = []
+    for tenths in range(1, 6001):
+        timeout = tenths / 10
+        try:
+            enrollment.Policy(
+                repo=str(tmp_path), verifier_argv=("pytest",), timeout=timeout
+            )
+        except ValueError:
+            rejected.append(timeout)
+
+    assert rejected == [], f"default derivation rejects its own margin for {rejected[:5]}"
+
+
+@pytest.mark.parametrize("timeout", [1.4, 2.9, 5.9, 13.4, 99.9])
+def test_the_advice_in_the_margin_error_actually_works(tmp_path, timeout):
+    """Following the message must not reproduce the same message."""
+    with pytest.raises(ValueError) as caught:
+        enrollment.Policy(
+            repo=str(tmp_path),
+            verifier_argv=("pytest",),
+            timeout=timeout,
+            hook_timeout=timeout,
+        )
+    advised = float(str(caught.value).split("--hook-timeout ")[1].split()[0])
+
+    policy = enrollment.Policy(
+        repo=str(tmp_path),
+        verifier_argv=("pytest",),
+        timeout=timeout,
+        hook_timeout=advised,
+    )
+
+    assert policy.hook_timeout == advised
+
+
+def test_a_policy_saved_with_such_a_timeout_can_be_loaded_again(
+    tmp_path, monkeypatch
+):
+    """A policy that cannot be re-read would block every Stop forever."""
+    monkeypatch.setenv("THEUSTAD_HOME", str(tmp_path / "home"))
+    repo = _repo(tmp_path)
+    enrollment.save_policy(
+        enrollment.Policy(
+            repo=str(repo), verifier_argv=tuple(default_argv()), timeout=2.9
+        )
+    )
+
+    loaded = enrollment.load_policy(repo)
+
+    assert loaded is not None and loaded.timeout == 2.9

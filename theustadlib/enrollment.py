@@ -28,6 +28,7 @@ MAX_CLAUDE_BLOCKS = 7
 # blocking result into a silent pass.  The verifier deadline must therefore
 # sit strictly below the hook timeout, with room for TheUstad's own work.
 MIN_HOOK_MARGIN = 15.0
+_MARGIN_TOLERANCE = 1e-6
 HOOK_PATTERNS = (
     *DEFAULT_PATTERNS,
     ".claude/settings.json",
@@ -197,12 +198,16 @@ class Policy:
         hook_timeout = float(hook_timeout)
         if not math.isfinite(hook_timeout) or hook_timeout <= 0:
             raise ValueError("hook timeout must be positive")
-        if hook_timeout - self.timeout < MIN_HOOK_MARGIN:
+        # Binary floating point makes (t + 15.0) - t land just under 15.0 for
+        # many values, so an exact comparison would reject the margin this
+        # class itself derives.  Compare against the sum with a tolerance.
+        required = self.timeout + MIN_HOOK_MARGIN
+        if hook_timeout < required - _MARGIN_TOLERANCE:
             raise ValueError(
                 f"hook timeout {hook_timeout:g}s leaves less than "
                 f"{MIN_HOOK_MARGIN:g}s above the {self.timeout:g}s verifier "
                 "deadline; the host would cancel the hook and render no "
-                f"decision. Use --hook-timeout {self.timeout + MIN_HOOK_MARGIN:g} "
+                f"decision. Use --hook-timeout {math.ceil(required)} "
                 "or lower --timeout."
             )
         object.__setattr__(self, "hook_timeout", hook_timeout)

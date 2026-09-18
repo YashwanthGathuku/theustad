@@ -36,7 +36,6 @@ def _enrolled(tmp_path, monkeypatch):
         "cwd": str(repo),
         "source": "startup",
     }
-    assert hookadapter.main(["claude", "SessionStart"]) is not None or True
     return repo, start
 
 
@@ -68,7 +67,6 @@ class _Stdin:
     [
         ("theustadlib.hookadapter.check", TypeError("boom")),
         ("theustadlib.hookadapter.find_claims", AttributeError("boom")),
-        ("theustadlib.hookadapter.run_verifier", IndexError("boom")),
         ("theustadlib.enrollment.block_count", KeyError("boom")),
         ("theustadlib.chain.AuditChain.append", ZeroDivisionError("boom")),
     ],
@@ -134,6 +132,22 @@ def test_block_counter_failure_on_a_red_suite_blocks(tmp_path, monkeypatch, caps
 
     assert _invoke(_stop_payload(repo), monkeypatch) == hookadapter.BLOCK
     assert hookadapter.INTERNAL_ERROR in capsys.readouterr().err
+
+
+def test_a_verifier_that_raises_blocks_as_a_handled_verifier_error(
+    tmp_path, monkeypatch, capsys
+):
+    """Distinct from INTERNAL_ERROR: a failing verifier is an expected case."""
+    repo, start = _enrolled(tmp_path, monkeypatch)
+    assert _invoke(start, monkeypatch) == hookadapter.ALLOW
+
+    def explode(*args, **kwargs):
+        raise IndexError("boom")
+
+    monkeypatch.setattr("theustadlib.hookadapter.run_verifier", explode)
+
+    assert _invoke(_stop_payload(repo), monkeypatch) == hookadapter.BLOCK
+    assert hookadapter.HookVerdict.VERIFIER_ERROR.value in capsys.readouterr().err
 
 
 def test_malformed_terminal_record_blocks(tmp_path, monkeypatch, capsys):

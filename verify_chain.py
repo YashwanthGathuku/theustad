@@ -8,6 +8,7 @@ hashes, and UTF-8 bytes.
 """
 import hashlib
 import json
+import os
 import sys
 
 
@@ -19,6 +20,11 @@ def _broken(seq, reason):
 def main(path):
     prev = "0" * 64
     n = 0
+    if os.path.islink(path) or not os.path.isfile(path):
+        # The library oracle refuses these; a link target can be swapped
+        # between the check and the read, so both must reject it.
+        print(f"ERROR audit path is not a regular file: {path}", file=sys.stderr)
+        sys.exit(2)
     try:
         # Binary mode keeps decoding inside the handler below: a text-mode
         # iterator raises UnicodeDecodeError from the for statement itself.
