@@ -154,10 +154,10 @@ def bytecode_conflict(
     if repo is None:
         if not PurePath(prefix).is_absolute():
             return (
-                f"-X pycache_prefix={prefix} is relative, so it resolves against "
-                "the repository the verifier runs in and may write bytecode into "
-                "the protected tree; use an absolute path outside the repository, "
-                "or -B"
+                f"-X pycache_prefix={prefix} is not an absolute path on this "
+                "platform, so where it resolves depends on the verifier's "
+                "working directory and it may write bytecode into the protected "
+                "tree; use an absolute path outside the repository, or -B"
             )
         return None
 

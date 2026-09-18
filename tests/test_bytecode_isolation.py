@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -204,8 +205,11 @@ def test_a_verifier_that_ignores_the_bytecode_variable_is_refused(command):
     # would write into the protected tree, failing an honest run as TAMPERED.
     from theustadlib.verifier import parse_command
 
-    with pytest.raises(ValueError, match="isolated Python"):
-        parse_command(command.format(python=Path(sys.executable).as_posix()))
+    cache = (Path(tempfile.gettempdir()) / "theustad-cache").as_posix()
+    with pytest.raises(ValueError, match="isolated Python|not an absolute path"):
+        parse_command(
+            command.format(python=Path(sys.executable).as_posix(), cache=cache)
+        )
 
 
 @pytest.mark.parametrize(
@@ -215,8 +219,8 @@ def test_a_verifier_that_ignores_the_bytecode_variable_is_refused(command):
         "{python} -IB -m pytest -q",
         "{python} -B -I -m pytest -q",
         "{python} -m pytest -q",
-        "{python} -I -X pycache_prefix=/tmp/theustad-cache -m pytest",
-        "{python} -IX pycache_prefix=/tmp/theustad-cache -m pytest",
+        "{python} -I -X pycache_prefix={cache} -m pytest",
+        "{python} -IX pycache_prefix={cache} -m pytest",
         "npm test",
         "pytest -q",
     ],
@@ -224,7 +228,11 @@ def test_a_verifier_that_ignores_the_bytecode_variable_is_refused(command):
 def test_a_verifier_that_cannot_write_protected_bytecode_is_accepted(command):
     from theustadlib.verifier import parse_command
 
-    argv = parse_command(command.format(python=Path(sys.executable).as_posix()))
+    # An absolute path on this platform: "/tmp/x" carries no drive on Windows.
+    cache = (Path(tempfile.gettempdir()) / "theustad-cache").as_posix()
+    argv = parse_command(
+        command.format(python=Path(sys.executable).as_posix(), cache=cache)
+    )
 
     assert argv
 
@@ -379,7 +387,7 @@ def test_a_relative_prefix_is_refused_when_no_repository_is_known():
         [sys.executable, "-I", "-X", "pycache_prefix=cache", "-m", "pytest"]
     )
 
-    assert conflict is not None and "relative" in conflict
+    assert conflict is not None and "not an absolute path" in conflict
 
 
 def test_cpython_really_writes_a_relative_prefix_into_the_repository(tmp_path):
@@ -453,3 +461,17 @@ def test_a_non_python_verifier_is_untouched_by_launcher_detection():
 
     assert parse_command("npm test")
     assert parse_command("/usr/bin/env npm test")
+
+
+def test_an_absolute_prefix_for_this_platform_is_accepted_without_a_repository():
+    """"/tmp/x" is drive-relative on Windows, so the shape must be computed."""
+    from theustadlib.verifier import bytecode_conflict
+
+    cache = (Path(tempfile.gettempdir()) / "theustad-cache").as_posix()
+
+    assert (
+        bytecode_conflict(
+            [sys.executable, "-I", "-X", f"pycache_prefix={cache}", "-m", "pytest"]
+        )
+        is None
+    )
