@@ -457,7 +457,12 @@ def mark_terminal(state_dir: Path, verdict: str) -> None:
 
 def terminal_verdict(state_dir: Path) -> str | None:
     value = _read_json(state_dir / "terminal.json")
-    return str(value["verdict"]) if value else None
+    if value is None:
+        return None
+    try:
+        return str(value["verdict"])
+    except KeyError as error:
+        raise ValueError("invalid terminal verdict record") from error
 
 
 def audit_paths(repo: str | os.PathLike[str]) -> list[Path]:

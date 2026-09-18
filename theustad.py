@@ -682,8 +682,11 @@ def _hook_command(argv: Sequence[str]) -> int:
         if args.hook_command == "verify-chain":
             return _verify_hook_chains(args)
         raise ValueError(f"unsupported hook command: {args.hook_command}")
-    except (OSError, RuntimeError, ValueError) as error:
-        _console_output(f"THEUSTAD_ERROR {error}", stream=sys.stderr)
+    except Exception as error:
+        # Never let an unexpected exception pick the exit code for us.
+        _console_output(
+            f"THEUSTAD_ERROR {type(error).__name__}: {error}", stream=sys.stderr
+        )
         return 2
 
 
@@ -735,8 +738,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             timeout=args.timeout,
         )
         return runner.run().exit_code
-    except (OSError, ValueError, RuntimeError) as error:
-        _console_output(f"THEUSTAD_ERROR {error}", stream=sys.stderr)
+    except Exception as error:
+        _console_output(
+            f"THEUSTAD_ERROR {type(error).__name__}: {error}", stream=sys.stderr
+        )
         return 2
 
 

@@ -23,6 +23,7 @@ from .verifier import VerificationResult, run as run_verifier
 
 ALLOW = 0
 BLOCK = 2
+INTERNAL_ERROR = "INTERNAL_ERROR"
 FORBIDDEN_POLICY_OPTIONS = frozenset(
     {
         "--verifier",
@@ -522,8 +523,15 @@ def main(argv: Sequence[str]) -> int:
         if not isinstance(payload, dict):
             raise ValueError("hook payload must be a JSON object")
         response = dispatch(vendor, payload, expected_event=expected_event)
-    except (json.JSONDecodeError, OSError, RuntimeError, ValueError) as error:
-        print(f"TheUstad hook error: {error}", file=sys.stderr)
+    except Exception as error:
+        # Exit 1 is non-blocking in Claude Code, so an unhandled exception here
+        # would let the agent stop with no decision rendered.  Every failure,
+        # expected or not, must still block.
+        print(
+            f"TheUstad hook error: {INTERNAL_ERROR} "
+            f"{type(error).__name__}: {error}",
+            file=sys.stderr,
+        )
         return BLOCK
 
     if response.stdout is not None:
