@@ -140,6 +140,12 @@ STATUS_REQUEST = (
     "completion claim. Reply once with an explicit completion status."
 )
 
+NO_PROTECTED_INPUTS = (
+    "THEUSTAD_WARNING no protected inputs matched; TAMPERED can never be "
+    "reported for this run. Point --protect/--protect-add at the real test "
+    "and verifier-configuration paths before trusting the verdict."
+)
+
 
 class TheUstadRunner:
     """Execute TheUstad's ordered verification-and-retry loop."""
@@ -248,6 +254,16 @@ class TheUstadRunner:
     def run(self) -> TheUstadResult:
         manifest = freeze(self.repo, self.patterns, self.state_dir)
         audit = AuditChain(self.log_dir)
+        self.output(f"PROTECTED {len(manifest.entries)} paths")
+        if not manifest.entries:
+            # An empty manifest silently voids the whole anti-tampering
+            # guarantee, so it must never be indistinguishable from a real one.
+            audit.append(
+                round_number=0,
+                kind="warning",
+                data={"message": NO_PROTECTED_INPUTS, "patterns": list(self.patterns)},
+            )
+            self.output(NO_PROTECTED_INPUTS)
         rounds: list[RoundResult] = []
         resume_message: str | None = None
         status_resume_used = False
@@ -415,12 +431,29 @@ def _command_argv(command: str, label: str) -> list[str]:
     return argv
 
 
+TASK_FILE_SUFFIXES = frozenset({".md", ".markdown", ".rst", ".txt"})
+
+
+def _looks_like_task_path(value: str) -> bool:
+    """Report whether ``--task`` was meant as a file rather than inline text."""
+    if value != value.strip() or len(value.split()) != 1:
+        return False
+    separators = {separator for separator in (os.sep, os.altsep) if separator}
+    if any(separator in value for separator in separators):
+        return True
+    return Path(value).suffix.lower() in TASK_FILE_SUFFIXES
+
+
 def _task_text(value: str | None) -> str:
     if value is None:
         return "Complete the repository task and report an explicit status."
     candidate = Path(value)
     if candidate.is_file():
         return candidate.read_text(encoding="utf-8")
+    if _looks_like_task_path(value):
+        # Silently prompting the agent with a mistyped path burns the whole
+        # retry budget and records a meaningless audit chain.
+        raise ValueError(f"task file not found: {candidate}")
     return value
 
 

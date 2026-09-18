@@ -70,6 +70,9 @@ def verify(path: str | os.PathLike[str]) -> tuple[int, str]:
                 )
             previous = actual
             count += 1
+    if count == 0:
+        # An emptied or truncated log attests nothing; both oracles refuse it.
+        raise ValueError("broken audit chain at seq 0: audit chain is empty")
     return count, previous
 
 

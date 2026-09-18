@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from .childenv import child_environment
+
 
 TAIL_LINES = 30
 TIMEOUT_EXIT_CODE = 124
@@ -112,6 +114,7 @@ def run(
         errors="replace",
         shell=False,
         start_new_session=os.name == "posix",
+        env=child_environment(),
     )
 
     timed_out = False

@@ -159,6 +159,14 @@ def _tamper_data(stage: str, tampering: Tampering) -> dict[str, Any]:
     }
 
 
+NO_PROTECTED_INPUTS = (
+    "TheUstad WARNING: the enrolled protected patterns matched nothing in "
+    "this repository, so TAMPERED can never be reported for this session. "
+    "Re-run `theustad.py enroll --protect-add ...` against the real test and "
+    "verifier-configuration paths."
+)
+
+
 def _system_message(message: str) -> HookResponse:
     return HookResponse(ALLOW, stdout={"systemMessage": message})
 
@@ -282,6 +290,18 @@ def handle_session_start(event: HookEvent, vendor: str) -> HookResponse:
             audit_path=str(audit.path.resolve(strict=True)),
         )
     )
+    if not manifest.entries:
+        # An empty baseline is indistinguishable from a real one at Stop time,
+        # so it has to be said out loud while the session can still be fixed.
+        audit.append(
+            round_number=0,
+            kind="warning",
+            data={
+                "message": NO_PROTECTED_INPUTS,
+                "patterns": list(policy.patterns),
+            },
+        )
+        return _system_message(NO_PROTECTED_INPUTS)
     return HookResponse(ALLOW)
 
 

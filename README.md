@@ -95,7 +95,7 @@ after installation, then follow [the plugin guide](docs/PLUGIN_GUIDE.md).
 ## Choose an enforcement mode
 
 | Interface | Assurance | Use it for | Entry point |
-|---|---|---|
+|---|---|---|---|
 | Standalone wrapper | Highest | CI, automation, direct review | `python theustad.py --repo ... --task ...` |
 | Codex plugin | Highest | A protected child coding task in Codex | `$theustad:doctor`, `$theustad:run`, `$theustad:audit` |
 | Claude Code hook (experimental) | Guardrail | Automatic verification when Claude tries to stop | `theustad.py enroll` + `SessionStart`/`Stop` hooks |
@@ -197,6 +197,17 @@ python theustad.py --repo /absolute/path/to/project \
 The custom verifier is the acceptance oracle for that run. Protect all inputs
 it needs before starting; protected files are checked before and after
 verification, and changed inputs are restored and reported as `TAMPERED`.
+
+TheUstad starts both the agent and the verifier with
+`PYTHONDONTWRITEBYTECODE=1`. Without it, an ordinary `pytest` run writes
+`tests/__pycache__/*.pyc` inside the protected tree, and the very next manifest
+check reports an honest round as `TAMPERED`. A `.pyc` file that TheUstad did not
+cause is still reported, so planted bytecode remains detectable.
+
+If the configured patterns match nothing, TheUstad prints `PROTECTED 0 paths`
+with a warning and records it in the audit chain: a run with an empty baseline
+can never reach `TAMPERED`, so its `VERIFIED` result carries no anti-tampering
+guarantee.
 
 On WSL, make sure every custom-verifier executable is WSL-native before
 starting TheUstad. For example, check both `command -v node` and
