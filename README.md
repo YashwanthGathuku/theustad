@@ -176,10 +176,13 @@ HOOK_TIMEOUT 315s
 ```
 
 `--hook-timeout` sets the emitted value directly. `--calibrate` runs the
-verifier three times first, reports the slowest run as p95, and refuses to
-enroll when that plus the margin would not fit — naming the minimum safe
-`--hook-timeout` instead of writing a policy that fails open. A verifier that
-exceeds its own deadline is killed by process group and reported as
+verifier three times under the verifier deadline it will actually be given, and
+refuses to enroll unless the slowest run fits **both** budgets: inside the
+verifier deadline, and inside the hook timeout with the margin to spare. A
+verifier that fits the hook budget but not its own deadline would time out on
+every Stop and never verify, so that is refused too, naming the value to use
+instead of writing a policy that cannot work. A verifier that exceeds its
+deadline at run time is killed by process group and reported as
 `VERIFIER_TIMEOUT` with exit code 2, which blocks.
 
 The hook entry point refuses `--verifier`, `--repo`, `--protect`, timeout, and
@@ -227,9 +230,14 @@ cause is still reported, so planted bytecode remains detectable.
 Isolated Python ignores that variable: `-I` implies `-E`, which drops every
 `PYTHON*` setting. A custom verifier such as `python -I -m pytest -q` is
 therefore refused, because it would fail an honest run. Add `-B`, or
-`-X pycache_prefix=DIR` pointing outside the repository — both are command-line
-options that isolated mode still honours. The default verifier already passes
-`-B`.
+`-X pycache_prefix=DIR` — both are command-line options that isolated mode still
+honours. The default verifier already passes `-B`.
+
+A cache prefix must resolve **outside** the repository. It is resolved against
+the verifier's working directory, so a repository-relative value such as
+`-X pycache_prefix=tests/cache` writes its parallel bytecode tree straight into
+the protected paths it was meant to avoid; TheUstad refuses those too, naming
+the path the prefix resolves to.
 
 If the configured patterns match nothing, TheUstad prints `PROTECTED 0 paths`
 with a warning and records it in the audit chain: a run with an empty baseline

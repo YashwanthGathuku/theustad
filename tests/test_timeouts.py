@@ -176,8 +176,10 @@ def test_calibrate_refuses_an_unsafe_hook_timeout_without_enrolling(tmp_path):
         repo,
         "--verifier",
         f"{Path(sys.executable).as_posix()} {slow.as_posix()}",
+        # Fits its own deadline, but leaves under the margin below the hook
+        # budget, so the host would cancel the hook and render no decision.
         "--timeout",
-        "1",
+        "5",
         "--hook-timeout",
         "16",
         "--calibrate",
@@ -204,7 +206,7 @@ def test_calibrate_accepts_a_fast_verifier_and_enrolls(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert "CALIBRATE safe under HOOK_TIMEOUT 25s" in result.stdout
+    assert "CALIBRATE fits VERIFIER_DEADLINE 10s and HOOK_TIMEOUT 25s" in result.stdout
     assert "HOOK_TIMEOUT 25s" in result.stdout
 
 
@@ -218,3 +220,69 @@ def test_enroll_reports_both_deadlines_and_emits_the_timeout(tmp_path):
     assert "HOOK_TIMEOUT 60s" in result.stdout
     settings = json.loads(result.stdout[result.stdout.index("{") :])
     assert settings["hooks"]["Stop"][0]["hooks"][0]["timeout"] == 60
+
+
+def test_calibrate_refuses_a_verifier_that_cannot_meet_its_own_deadline(tmp_path):
+    """The hook budget is the outer bound; the verifier deadline is the real one."""
+    repo = _repo(tmp_path)
+    slow = tmp_path / "slow.py"
+    slow.write_text("import time\ntime.sleep(1.2)\n", encoding="utf-8")
+
+    result = _enroll(
+        tmp_path,
+        repo,
+        "--verifier",
+        f"{Path(sys.executable).as_posix()} {slow.as_posix()}",
+        # Comfortably inside the hook budget, but past the verifier deadline:
+        # every real Stop would time out and the run could never verify.
+        "--timeout",
+        "1",
+        "--hook-timeout",
+        "20",
+        "--calibrate",
+    )
+
+    assert result.returncode == 2, result.stdout
+    assert "does not fit the 1s verifier deadline" in result.stderr
+    assert not (tmp_path / "home" / "enrollments").exists()
+
+
+def test_calibrate_reports_a_timed_out_run(tmp_path):
+    repo = _repo(tmp_path)
+    slow = tmp_path / "slow.py"
+    slow.write_text("import time\ntime.sleep(1.2)\n", encoding="utf-8")
+
+    result = _enroll(
+        tmp_path,
+        repo,
+        "--verifier",
+        f"{Path(sys.executable).as_posix()} {slow.as_posix()}",
+        "--timeout",
+        "1",
+        "--hook-timeout",
+        "20",
+        "--calibrate",
+    )
+
+    assert "TIMEOUT" in result.stdout, result.stdout
+
+
+def test_calibrate_accepts_a_verifier_that_fits_both_budgets(tmp_path):
+    repo = _repo(tmp_path)
+    slow = tmp_path / "slow.py"
+    slow.write_text("import time\ntime.sleep(1.2)\n", encoding="utf-8")
+
+    result = _enroll(
+        tmp_path,
+        repo,
+        "--verifier",
+        f"{Path(sys.executable).as_posix()} {slow.as_posix()}",
+        "--timeout",
+        "5",
+        "--hook-timeout",
+        "25",
+        "--calibrate",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "CALIBRATE fits VERIFIER_DEADLINE 5s and HOOK_TIMEOUT 25s" in result.stdout

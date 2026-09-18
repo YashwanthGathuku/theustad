@@ -315,3 +315,94 @@ def test_the_parser_agrees_with_cpython_on_every_flag_spelling(flags, tmp_path):
         f"{'refuse' if refused else 'accept'} but CPython "
         f"{'wrote' if wrote else 'did not write'} bytecode beside the source"
     )
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["tests/cache", "cache", "./tests/cache", "tests/../tests/cache"],
+)
+def test_a_repository_relative_pycache_prefix_is_refused(tmp_path, prefix):
+    # The prefix resolves against the verifier's working directory, so a
+    # relative value writes its parallel tree straight into the repository.
+    from theustadlib.verifier import bytecode_conflict
+
+    conflict = bytecode_conflict(
+        [sys.executable, "-I", "-X", f"pycache_prefix={prefix}", "-m", "pytest"],
+        tmp_path,
+    )
+
+    assert conflict is not None
+    assert "inside the repository" in conflict
+
+
+@pytest.mark.parametrize("shape", ["absolute-outside", "relative-outside"])
+def test_a_pycache_prefix_outside_the_repository_is_accepted(tmp_path, shape):
+    from theustadlib.verifier import bytecode_conflict
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    prefix = str(tmp_path / "cache") if shape == "absolute-outside" else "../cache"
+
+    assert (
+        bytecode_conflict(
+            [sys.executable, "-I", "-X", f"pycache_prefix={prefix}", "-m", "pytest"],
+            repo,
+        )
+        is None
+    )
+
+
+def test_an_absolute_prefix_inside_the_repository_is_refused(tmp_path):
+    from theustadlib.verifier import bytecode_conflict
+
+    conflict = bytecode_conflict(
+        [
+            sys.executable,
+            "-I",
+            "-X",
+            f"pycache_prefix={tmp_path / 'build' / 'cache'}",
+            "-m",
+            "pytest",
+        ],
+        tmp_path,
+    )
+
+    assert conflict is not None and "inside the repository" in conflict
+
+
+def test_a_relative_prefix_is_refused_when_no_repository_is_known():
+    # Without a repository the resolution cannot be checked, so a relative
+    # prefix must not be waved through.
+    from theustadlib.verifier import bytecode_conflict
+
+    conflict = bytecode_conflict(
+        [sys.executable, "-I", "-X", "pycache_prefix=cache", "-m", "pytest"]
+    )
+
+    assert conflict is not None and "relative" in conflict
+
+
+def test_cpython_really_writes_a_relative_prefix_into_the_repository(tmp_path):
+    """Ground the rule in observed behaviour, not in how the docs read."""
+    repo = tmp_path / "repo"
+    protected = repo / "tests"
+    protected.mkdir(parents=True)
+    (protected / "probe_mod.py").write_text("VALUE = 1\n", encoding="utf-8")
+    code = f"import sys; sys.path.insert(0, {str(protected)!r}); import probe_mod"
+
+    subprocess.run(
+        [sys.executable, "-I", "-X", "pycache_prefix=tests/cache", "-c", code],
+        cwd=repo,
+        capture_output=True,
+        check=True,
+    )
+
+    assert list((protected / "cache").rglob("*.pyc")), (
+        "expected bytecode inside the protected tree"
+    )
+
+
+def test_both_entry_points_pass_the_repository_to_the_verifier_parser():
+    source = (ROOT / "theustad.py").read_text(encoding="utf-8")
+
+    assert source.count("parse_verifier_command(args.verifier, repo)") == 2

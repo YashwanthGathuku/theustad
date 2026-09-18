@@ -601,37 +601,54 @@ def _claude_hook_settings(hook_timeout: float) -> dict[str, Any]:
 
 
 def _calibrate(
-    repo: Path, verifier_argv: Sequence[str], hook_timeout: float, runs: int = 3
-) -> float:
-    """Time the verifier and report the deadline the measurement supports."""
+    repo: Path, verifier_argv: Sequence[str], timeout: float, runs: int = 3
+) -> tuple[float, bool]:
+    """Time the verifier under the deadline TheUstad will actually enforce.
+
+    Measuring against the outer hook budget instead would accept a verifier
+    that finishes inside the hook timeout but never inside its own deadline,
+    so every real Stop would time out and the run could never verify.
+    """
     durations: list[float] = []
+    timed_out = False
     for attempt in range(1, runs + 1):
         started = time.monotonic()
-        result = run_verifier(verifier_argv, repo, hook_timeout)
+        result = run_verifier(verifier_argv, repo, timeout)
         elapsed = time.monotonic() - started
         durations.append(elapsed)
+        timed_out = timed_out or result.timed_out
         _console_output(
             f"CALIBRATE run {attempt}/{runs} {elapsed:.1f}s exit {result.exit_code}"
+            + (" TIMEOUT" if result.timed_out else "")
         )
     # Nearest-rank p95; with three runs that is the slowest one, stated plainly.
     ordered = sorted(durations)
     index = min(len(ordered) - 1, math.ceil(0.95 * len(ordered)) - 1)
-    return ordered[index]
+    return ordered[index], timed_out
 
 
 def _enroll(args: argparse.Namespace) -> int:
     repo = args.repo.resolve(strict=True)
     verifier_argv = (
-        parse_verifier_command(args.verifier) if args.verifier else default_argv()
+        parse_verifier_command(args.verifier, repo)
+        if args.verifier
+        else default_argv()
     )
     hook_timeout = args.hook_timeout
     if hook_timeout is None:
         hook_timeout = args.timeout + enrollment.MIN_HOOK_MARGIN
 
     if args.calibrate:
-        p95 = _calibrate(repo, verifier_argv, hook_timeout)
-        required = p95 + enrollment.MIN_HOOK_MARGIN
+        p95, timed_out = _calibrate(repo, verifier_argv, args.timeout)
         _console_output(f"CALIBRATE p95 {p95:.1f}s (slowest of 3 runs)")
+        if timed_out or p95 >= args.timeout:
+            raise ValueError(
+                f"verifier p95 {p95:.1f}s does not fit the {args.timeout:g}s "
+                "verifier deadline, so every Stop would time out and the run "
+                f"could never verify. Rerun with --timeout {math.ceil(p95) + 1} "
+                "or faster tests."
+            )
+        required = p95 + enrollment.MIN_HOOK_MARGIN
         if required >= hook_timeout:
             raise ValueError(
                 f"verifier p95 {p95:.1f}s needs a hook timeout of at least "
@@ -639,7 +656,10 @@ def _enroll(args: argparse.Namespace) -> int:
                 f"the host, which renders no decision. Rerun with --hook-timeout "
                 f"{math.ceil(required)} or faster tests."
             )
-        _console_output(f"CALIBRATE safe under HOOK_TIMEOUT {hook_timeout:g}s")
+        _console_output(
+            f"CALIBRATE fits VERIFIER_DEADLINE {args.timeout:g}s and "
+            f"HOOK_TIMEOUT {hook_timeout:g}s"
+        )
 
     policy = enrollment.Policy(
         repo=str(repo),
@@ -761,7 +781,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else list(DEFAULT_RESUME_TEMPLATE)
         )
         verifier_argv = (
-            parse_verifier_command(args.verifier)
+            parse_verifier_command(args.verifier, repo)
             if args.verifier
             else default_argv()
         )

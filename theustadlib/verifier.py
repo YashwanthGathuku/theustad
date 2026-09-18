@@ -33,20 +33,25 @@ def _is_python_interpreter(argument: str) -> bool:
     return suffix == "" or all(character in "0123456789." for character in suffix)
 
 
-def ignores_bytecode_environment(argv: Sequence[str]) -> bool:
-    """Report a Python verifier that cannot be told to skip bytecode.
+@dataclass(frozen=True)
+class InterpreterFlags:
+    """What an interpreter's own flags say about where bytecode will land."""
 
-    ``-I`` implies ``-E``, so isolated Python ignores every ``PYTHON*``
-    variable including ``PYTHONDONTWRITEBYTECODE``.  Such a verifier writes
-    ``__pycache__`` into the protected tree and the post-verifier check then
-    reports an honest run as TAMPERED.  ``-B`` and ``-X pycache_prefix=`` are
-    command-line options, which isolated mode still honours.
+    ignores_environment: bool
+    suppresses_writes: bool
+    pycache_prefix: str | None
+
+
+def scan_interpreter_flags(argv: Sequence[str]) -> InterpreterFlags:
+    """Read the interpreter flags that decide whether bytecode is written.
+
+    Scanning stops at ``-m``, ``-c``, ``--`` or the script, so arguments
+    belonging to the program under test are never read as interpreter flags.
     """
-    if not argv or not _is_python_interpreter(argv[0]):
-        return False
-
     ignores_environment = False
-    suppresses_bytecode = False
+    suppresses_writes = False
+    pycache_prefix: str | None = None
+
     index = 1
     while index < len(argv):
         token = argv[index]
@@ -61,7 +66,7 @@ def ignores_bytecode_environment(argv: Sequence[str]) -> bool:
             if letter in ("I", "E"):
                 ignores_environment = True
             elif letter == "B":
-                suppresses_bytecode = True
+                suppresses_writes = True
             elif letter in _VALUE_OPTIONS:
                 value = letters[position + 1 :]
                 if not value and index + 1 < len(argv):
@@ -71,11 +76,84 @@ def ignores_bytecode_environment(argv: Sequence[str]) -> bool:
                     # CPython reads an empty value as no prefix at all
                     # (sys.pycache_prefix is None), so bytecode still lands
                     # beside the source.  Only a real path redirects it.
-                    if value[len(_PYCACHE_PREFIX) :]:
-                        suppresses_bytecode = True
+                    prefix = value[len(_PYCACHE_PREFIX) :]
+                    if prefix:
+                        pycache_prefix = prefix
                 break
         index += 2 if consumed_value else 1
-    return ignores_environment and not suppresses_bytecode
+
+    return InterpreterFlags(
+        ignores_environment=ignores_environment,
+        suppresses_writes=suppresses_writes,
+        pycache_prefix=pycache_prefix,
+    )
+
+
+def ignores_bytecode_environment(argv: Sequence[str]) -> bool:
+    """Report a Python verifier that writes bytecode beside the source.
+
+    ``-I`` implies ``-E``, so isolated Python ignores every ``PYTHON*``
+    variable including ``PYTHONDONTWRITEBYTECODE``.  ``-B`` and
+    ``-X pycache_prefix=PATH`` are command-line options, which isolated mode
+    still honours.  Where a prefix *sends* the bytecode is a separate
+    question -- see ``bytecode_conflict``.
+    """
+    if not argv or not _is_python_interpreter(argv[0]):
+        return False
+    flags = scan_interpreter_flags(argv)
+    if not flags.ignores_environment:
+        return False
+    return not (flags.suppresses_writes or flags.pycache_prefix)
+
+
+def bytecode_conflict(
+    argv: Sequence[str], repo: str | os.PathLike[str] | None = None
+) -> str | None:
+    """Return why this verifier would falsely report TAMPERED, or ``None``.
+
+    A redirected cache is only safe if it lands outside the repository: the
+    prefix is resolved against the verifier's working directory, so a
+    repository-relative value such as ``tests/cache`` writes a parallel tree
+    straight into the protected paths it was meant to avoid.
+    """
+    if not argv or not _is_python_interpreter(argv[0]):
+        return None
+    flags = scan_interpreter_flags(argv)
+    if not flags.ignores_environment or flags.suppresses_writes:
+        return None
+
+    prefix = flags.pycache_prefix
+    if prefix is None:
+        return (
+            "isolated Python ignores PYTHONDONTWRITEBYTECODE, so this verifier "
+            "would write bytecode into the protected tree and report an honest "
+            "run as TAMPERED; add -B, or -X pycache_prefix=DIR pointing outside "
+            "the repository"
+        )
+
+    if repo is None:
+        if not PurePath(prefix).is_absolute():
+            return (
+                f"-X pycache_prefix={prefix} is relative, so it resolves against "
+                "the repository the verifier runs in and may write bytecode into "
+                "the protected tree; use an absolute path outside the repository, "
+                "or -B"
+            )
+        return None
+
+    repository = Path(repo).resolve(strict=False)
+    resolved = Path(prefix)
+    if not resolved.is_absolute():
+        resolved = repository / resolved
+    resolved = resolved.resolve(strict=False)
+    if resolved == repository or repository in resolved.parents:
+        return (
+            f"-X pycache_prefix={prefix} resolves to {resolved}, inside the "
+            "repository, so the verifier would write bytecode into paths it is "
+            "meant to leave alone and report an honest run as TAMPERED; point it "
+            "outside the repository, or use -B"
+        )
+    return None
 
 
 @dataclass(frozen=True)
@@ -93,7 +171,9 @@ def default_argv() -> list[str]:
     return [os.path.abspath(sys.executable), "-I", "-B", "-m", "pytest", "-q"]
 
 
-def parse_command(command: str) -> list[str]:
+def parse_command(
+    command: str, repo: str | os.PathLike[str] | None = None
+) -> list[str]:
     """Parse a custom verifier without enabling shell syntax."""
     argv = shlex.split(command)
     if not argv:
@@ -104,13 +184,9 @@ def parse_command(command: str) -> list[str]:
         for character in _SHELL_OPERATOR_CHARS
     ):
         raise ValueError("shell operators are unsupported in verifier commands")
-    if ignores_bytecode_environment(argv):
-        raise ValueError(
-            "isolated Python ignores PYTHONDONTWRITEBYTECODE, so this verifier "
-            "would write bytecode into the protected tree and report an honest "
-            "run as TAMPERED; add -B, or -X pycache_prefix=DIR pointing outside "
-            "the repository"
-        )
+    conflict = bytecode_conflict(argv, repo)
+    if conflict is not None:
+        raise ValueError(conflict)
     return argv
 
 
