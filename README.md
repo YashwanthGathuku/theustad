@@ -239,6 +239,40 @@ the verifier's working directory, so a repository-relative value such as
 the protected paths it was meant to avoid; TheUstad refuses those too, naming
 the path the prefix resolves to.
 
+## Test census
+
+A verifier's exit code can be produced without running anything the acceptance
+suite asserts, from source files an agent is meant to edit and which freezing
+therefore cannot see:
+
+- a module-level `pytest.skip` in code the protected tests import removes them
+  from collection while other tests keep the run green; and
+- `os._exit(0)` on import ends the process at status 0 before a single
+  assertion runs.
+
+Both reach `FINAL VERIFIED` on exit code alone. For a pytest verifier TheUstad
+therefore records which tests the suite collected *before* the agent starts,
+and requires the verification run to account for every one of them in a report
+written outside the repository:
+
+```text
+CENSUS 2 acceptance tests
+CENSUS CENSUS_SHRINK 1 test(s) recorded at baseline did not run
+FINAL FALSIFIED
+```
+
+Reasons are `CENSUS_SHRINK` (a recorded test did not run, including pytest's
+"no tests collected"), `REPORT_MISSING` (no usable report, so nothing shows the
+tests ran) and `REPORT_MISMATCH` (the verifier reported success while its own
+report holds failures). Tests the agent adds are reported but never counted
+toward acceptance.
+
+The baseline is a collection pass, not a second full run, and the acceptance
+run gains only a reporting flag — it cannot change which tests are selected or
+what they assert, so the verifier stays the oracle. The census supervises only
+a recognised pytest verifier that answers that flag; anything else is left
+alone rather than blocked. `--no-census` disables it.
+
 If the configured patterns match nothing, TheUstad prints `PROTECTED 0 paths`
 with a warning and records it in the audit chain: a run with an empty baseline
 can never reach `TAMPERED`, so its `VERIFIED` result carries no anti-tampering

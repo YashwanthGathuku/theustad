@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from theustadlib.chain import AuditChain
+from theustadlib import census
 from theustadlib import enrollment, hookadapter
 from theustadlib.chain import verify as verify_audit_chain
 from theustadlib.claims import Claim, find_claims
@@ -142,6 +143,12 @@ STATUS_REQUEST = (
     "completion claim. Reply once with an explicit completion status."
 )
 
+CENSUS_EVIDENCE = (
+    "The verifier reported success, but its own report does not show the "
+    "acceptance tests running. A green exit code earned that way is not "
+    "evidence. Reason: {reason} -- {detail}"
+)
+
 NO_PROTECTED_INPUTS = (
     "THEUSTAD_WARNING no protected inputs matched; TAMPERED can never be "
     "reported for this run. Point --protect/--protect-add at the real test "
@@ -164,7 +171,9 @@ class TheUstadRunner:
         log_dir: str | os.PathLike[str],
         max_retries: int,
         timeout: float,
+        with_census: bool = True,
         verifier_runner: VerifierRunner = run_verifier,
+        census_runner: VerifierRunner | None = None,
         claim_finder: ClaimFinder = find_claims,
         output: Output = _console_output,
     ):
@@ -184,7 +193,12 @@ class TheUstadRunner:
         self.log_dir = Path(log_dir)
         self.max_retries = max_retries
         self.timeout = timeout
+        self.with_census = with_census
         self.verifier_runner = verifier_runner
+        # The census probe is TheUstad's own measurement, never the acceptance
+        # oracle, so it is kept off the verifier hook: "the verifier ran once,
+        # and only when it should" stays a checkable property.
+        self.census_runner = census_runner or run_verifier
         self.claim_finder = claim_finder
         self.output = output
 
@@ -266,6 +280,28 @@ class TheUstadRunner:
                 data={"message": NO_PROTECTED_INPUTS, "patterns": list(self.patterns)},
             )
             self.output(NO_PROTECTED_INPUTS)
+
+        baseline_census: frozenset[str] | None = None
+        if self.with_census and census.is_pytest_verifier(self.verifier_argv):
+            # Taken before the agent runs: a module-level skip planted later
+            # removes tests from collection, so a late census is already shrunk.
+            self.state_dir.mkdir(parents=True, exist_ok=True)
+            probe_report = self.state_dir / "census-baseline.xml"
+            probe = self.census_runner(
+                census.probe_argv(self.verifier_argv, probe_report),
+                self.repo,
+                self.timeout,
+            )
+            collected = census.collected_ids(probe.output)
+            if collected and probe_report.is_file():
+                baseline_census = collected
+                self.output(f"CENSUS {len(collected)} acceptance tests")
+            else:
+                # Either nothing was collected, or this verifier does not write
+                # the report the census reads. Neither is the agent's doing, so
+                # the census stands down instead of blocking every round.
+                self.output("CENSUS unavailable; not supervising this verifier")
+
         rounds: list[RoundResult] = []
         resume_message: str | None = None
         status_resume_used = False
@@ -288,6 +324,7 @@ class TheUstadRunner:
             claims: tuple[Claim, ...] = ()
             verification: VerificationResult | None = None
             tampering: Tampering | None = None
+            census_result: census.CensusResult | None = None
 
             tampering = check(self.repo, manifest)
             self._record_session(audit, round_number, agent_result)
@@ -324,11 +361,20 @@ class TheUstadRunner:
                     )
                     verdict = Verdict.TAMPERED
                 else:
+                    report_path = self.state_dir / f"census-{round_number}.xml"
                     verification = self.verifier_runner(
-                        self.verifier_argv,
+                        census.report_argv(self.verifier_argv, report_path)
+                        if baseline_census is not None
+                        else self.verifier_argv,
                         self.repo,
                         self.timeout,
                     )
+                    if baseline_census is not None:
+                        census_result = census.compare(
+                            baseline_census,
+                            census.parse_report(report_path),
+                            verification.exit_code,
+                        )
                     tampering = check(self.repo, manifest)
                     if tampering:
                         self._restore_tampering(
@@ -340,7 +386,26 @@ class TheUstadRunner:
                         )
                         verdict = Verdict.TAMPERED
                     else:
-                        verdict = verdict_for(claims, verification.exit_code)
+                        # A census failure means the exit code is not evidence,
+                        # so it cannot carry the round to VERIFIED.
+                        effective_exit = verification.exit_code or (
+                            1 if census_result else 0
+                        )
+                        verdict = verdict_for(claims, effective_exit)
+                        if census_result:
+                            audit.append(
+                                round_number=round_number,
+                                kind="warning",
+                                data={
+                                    "message": census_result.detail,
+                                    "reason": census_result.reason,
+                                    "missing": list(census_result.missing),
+                                },
+                            )
+                            self.output(
+                                f"CENSUS {census_result.reason} "
+                                f"{census_result.detail}"
+                            )
                     if verification.warning:
                         audit.append(
                             round_number=round_number,
@@ -378,6 +443,15 @@ class TheUstadRunner:
                 resume_message = _tamper_resume_message(round_result.tampering)
             elif verification is not None:
                 resume_message = _evidence_resume_message(verdict, verification)
+                if census_result:
+                    resume_message = (
+                        CENSUS_EVIDENCE.format(
+                            reason=census_result.reason,
+                            detail=census_result.detail,
+                        )
+                        + "\n\n"
+                        + resume_message
+                    )
             else:
                 break
 
@@ -506,6 +580,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=_positive, default=600.0)
     parser.add_argument("--log", type=Path, help="directory for timestamped audit logs")
     parser.add_argument("--no-color", action="store_true")
+    parser.add_argument(
+        "--no-census",
+        action="store_true",
+        help="skip the pytest test census (one extra verifier run at baseline)",
+    )
     return parser
 
 
@@ -828,6 +907,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             log_dir=log_dir,
             max_retries=args.max_retries,
             timeout=args.timeout,
+            with_census=not args.no_census,
         )
         return runner.run().exit_code
     except Exception as error:
