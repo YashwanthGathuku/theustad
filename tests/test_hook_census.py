@@ -54,12 +54,20 @@ class _Session:
     """Drive one enrolled repository through SessionStart and Stop."""
 
     def __init__(
-        self, tmp_path: Path, *enroll_args: str, extra: dict[str, str] | None = None
+        self,
+        tmp_path: Path,
+        *enroll_args: str,
+        extra: dict[str, str] | None = None,
+        broken_module: str | None = None,
     ):
         # enroll_args are passed through, so a caller can name its own verifier.
         self.repo = _repo(tmp_path)
         for name, source in (extra or {}).items():
             (self.repo / "tests" / name).write_text(source, encoding="utf-8")
+        if broken_module is not None:
+            (self.repo / "app" / "broken.py").write_text(
+                broken_module, encoding="utf-8"
+            )
         self.home = tmp_path / "external"
         self.env = {**os.environ, "THEUSTAD_HOME": str(self.home)}
         assert self._run("enroll", "--repo", str(self.repo), *enroll_args).returncode == 0
@@ -90,8 +98,12 @@ class _Session:
             "source": "startup",
         }
 
-    def stop(self, source: str, message: str = CLAIM):
+    def stop(self, source: str, message: str = CLAIM, repair_broken: str | None = None):
         (self.repo / "app" / "calc.py").write_text(source, encoding="utf-8")
+        if repair_broken is not None:
+            (self.repo / "app" / "broken.py").write_text(
+                repair_broken, encoding="utf-8"
+            )
         return self._hook(
             "Stop",
             {
@@ -323,3 +335,27 @@ def test_disabling_the_census_is_not_warned_about(tmp_path):
     ]
 
     assert not any("census did not arm" in w["data"]["message"] for w in warnings)
+
+
+def test_repairing_a_collection_failure_is_not_convicted(tmp_path):
+    """The census must not make the fix it was asked for unverifiable.
+
+    A protected test importing a broken module makes pytest write one
+    synthetic errored entry. That id vanishes when the import is repaired, so
+    requiring it back blocks the honest fix for ever.
+    """
+    session = _Session(
+        tmp_path,
+        extra={
+            "test_import.py": "from app.broken import value\n\n\n"
+            "def test_value():\n    assert value() == 1\n"
+        },
+        broken_module="import nonexistent_module\n\n\ndef value():\n    return 1\n",
+    )
+
+    assert "census did not arm" in session.started.stdout
+
+    response = session.stop(HONEST, repair_broken="def value():\n    return 1\n")
+
+    assert response.returncode == 0, response.stderr
+    assert "VERIFIED" in response.stdout

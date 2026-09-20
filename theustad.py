@@ -288,12 +288,18 @@ class TheUstadRunner:
                 self.timeout,
             )
             collected = census.parse_report(probe_report)
+            if collected and not census.required(collected):
+                # Nothing in the baseline actually ran, so there is nothing to
+                # supervise -- and saying so beats arming on an empty promise.
+                collected = None
             # Not left behind: a round's report only has to look like this
             # one, and the verifier process can reach this directory.
             census.clear_report(probe_report)
             if collected:
                 baseline_census = collected
-                self.output(f"CENSUS {len(collected)} acceptance tests")
+                self.output(
+                    f"CENSUS {len(census.required(collected))} acceptance tests"
+                )
             else:
                 # Either nothing was collected, or this verifier does not write
                 # the report the census reads. Neither is the agent's doing, so

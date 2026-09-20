@@ -356,11 +356,19 @@ def _take_census_baseline(
     else:
         detail = "no report" if not collected else ""
 
+    # A baseline of entries that asserted nothing supervises nothing: pytest
+    # abandons the run on a collection error, so the whole report can be one
+    # synthetic entry. Arming on that would be silent non-supervision.
+    carrying = census.required(collected or {})
+    if not carrying and collected:
+        detail = "the baseline recorded no test that ran"
+        collected = None
+
     if collected:
         census.save_baseline(state_dir, collected)
     return {
         "armed": bool(collected),
-        "tests": len(collected or ()),
+        "tests": len(carrying),
         "detail": detail,
     }
 

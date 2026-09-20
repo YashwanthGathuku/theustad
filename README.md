@@ -264,6 +264,15 @@ CENSUS CENSUS_SHRINK 1 test(s) recorded at baseline did not run
 FINAL FALSIFIED
 ```
 
+Only the tests that actually *ran* at baseline are owed back. One the
+repository skips was never assurance, and one that **errored** never ran its
+body at all -- pytest abandons the run on a collection failure and writes a
+single synthetic entry named after the module, whose id disappears the moment
+the import is repaired. Requiring that back would convict an agent for fixing
+exactly what it was asked to fix. When nothing in the baseline ran, there is
+nothing to supervise, and the census says so rather than arming on an empty
+promise.
+
 Reasons are `CENSUS_SHRINK` (a recorded test did not run, including pytest's
 "no tests collected"), `CENSUS_SKIP` (a test that ran at baseline is skipped
 now — the assertions were removed whatever the exit code says),

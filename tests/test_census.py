@@ -270,7 +270,10 @@ def test_a_legitimately_skipped_test_does_not_block_an_honest_fix(tmp_path):
 
     stdout = _run(tmp_path, repo, HONEST)
 
-    assert "CENSUS 3 acceptance tests" in stdout, stdout
+    # Three tests are collected and two are owed back: the line counts what
+    # the census will hold the run to, not what pytest happened to see, and a
+    # test the repository itself skips was never assurance to begin with.
+    assert "CENSUS 2 acceptance tests" in stdout, stdout
     assert census.CENSUS_SKIP not in stdout
     assert "FINAL VERIFIED" in stdout, stdout
 
@@ -475,3 +478,43 @@ def test_the_probe_neutralises_a_fail_fast_verifier():
     )
     # The acceptance run is left exactly as configured.
     assert "--maxfail=0" not in census.report_argv(argv, "/tmp/report.xml")
+
+
+@pytest.mark.parametrize(
+    ("outcome", "required_back"),
+    [
+        ("passed", True),
+        ("failure", True),
+        ("skipped", False),
+        ("error", False),
+    ],
+)
+def test_only_baseline_entries_that_ran_are_required_back(outcome, required_back):
+    """A baseline entry that asserted nothing cannot be owed back.
+
+    pytest writes a synthetic errored entry named after the module when
+    collection fails, and its id disappears the moment the import is fixed.
+    Requiring it convicts an agent for repairing what it was asked to repair.
+    A failing test did run, so it is still owed.
+    """
+    baseline = {"tests.test_v::test_value": outcome}
+
+    result = census.compare(baseline, {}, 0)
+
+    assert bool(result) is required_back
+
+
+def test_a_collection_failure_does_not_become_an_acceptance_test():
+    """The synthetic id and the real one are not the same test."""
+    baseline = {"::tests.test_v": "error"}
+    report = {"tests.test_v::test_value": "passed"}
+
+    assert not census.compare(baseline, report, 0)
+
+
+def test_a_baseline_of_nothing_that_ran_supervises_nothing():
+    """pytest abandons the run on a collection error, so the whole report can
+    be one synthetic entry. Arming on that is silent non-supervision."""
+    assert census.required({"::tests.test_v": "error"}) == set()
+    assert census.required({"t::a": "skipped", "t::b": "error"}) == set()
+    assert census.required({"t::a": "passed", "t::b": "error"}) == {"t::a"}

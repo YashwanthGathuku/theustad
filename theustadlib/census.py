@@ -257,6 +257,24 @@ def parse_report(path: str | Path) -> dict[str, str] | None:
     return outcomes
 
 
+# Outcomes a baseline entry can carry while having asserted nothing.  A test
+# that was skipped is the repository's own choice; one that errored never ran
+# its body, and a collection failure is not a test at all -- pytest writes a
+# synthetic entry named after the module, whose id disappears the moment the
+# import is fixed.  Requiring either back convicts an agent for repairing the
+# thing it was asked to repair.
+_NO_ASSURANCE = frozenset({"skipped", "error"})
+
+
+def required(baseline: dict[str, str]) -> set[str]:
+    """The baseline entries that actually carried assurance."""
+    return {
+        identifier
+        for identifier, outcome in baseline.items()
+        if outcome not in _NO_ASSURANCE
+    }
+
+
 def compare(
     baseline: dict[str, str],
     report: dict[str, str] | None,
@@ -270,14 +288,15 @@ def compare(
             "the acceptance tests ran",
         )
 
-    if exit_code == NO_TESTS_EXIT_CODE:
+    expected = required(baseline)
+    if exit_code == NO_TESTS_EXIT_CODE and expected:
         return CensusResult(
             CENSUS_SHRINK,
             "the verifier collected no tests at all",
-            missing=tuple(sorted(baseline)),
+            missing=tuple(sorted(expected)),
         )
 
-    missing = tuple(sorted(set(baseline) - set(report)))
+    missing = tuple(sorted(expected - set(report)))
     if missing:
         return CensusResult(
             CENSUS_SHRINK,
@@ -286,14 +305,14 @@ def compare(
         )
 
     # A test the suite ran at baseline and skips now had its assertions
-    # removed, whatever the exit code says. One that was already skipped at
-    # baseline is the repository's own choice and is left alone.
+    # removed, whatever the exit code says. One that asserted nothing at
+    # baseline -- already skipped, or errored -- is left alone for the same
+    # reason it is not required back.
     newly_skipped = tuple(
         sorted(
             identifier
             for identifier, outcome in report.items()
-            if outcome == "skipped"
-            and baseline.get(identifier, "skipped") != "skipped"
+            if outcome == "skipped" and identifier in expected
         )
     )
     if newly_skipped:
