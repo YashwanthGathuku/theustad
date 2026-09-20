@@ -340,3 +340,40 @@ def test_env_stops_reading_options_at_the_command_it_launches(command):
     Python at all.
     """
     assert parse_command(command)
+
+
+@pytest.mark.parametrize(
+    ("expected", "command"),
+    [
+        # env -C moves the command's cwd, and CPython resolves a relative
+        # prefix against that: ../tests/cache from inside tests/ is
+        # tests/cache, which is the protected tree.
+        (False, "env -C tests {python} -I -X pycache_prefix=../tests/cache -m pytest"),
+        (True, "env -C tests {python} -I -X pycache_prefix=/tmp/outside -m pytest"),
+        (True, "env -C tests {python} -I -B -m pytest"),
+        # Without the chdir the same prefix does land outside.
+        (True, "{python} -I -X pycache_prefix=../outside -m pytest"),
+        (False, "{python} -I -X pycache_prefix=tests/cache -m pytest"),
+    ],
+)
+def test_a_relative_prefix_is_resolved_where_the_command_will_run(
+    tmp_path, expected, command
+):
+    python = Path(sys.executable).as_posix()
+    repo = tmp_path / "repo"
+    (repo / "tests").mkdir(parents=True)
+
+    if expected:
+        assert parse_command(command.format(python=python), repo=repo)
+    else:
+        with pytest.raises(ValueError, match="inside the repository"):
+            parse_command(command.format(python=python), repo=repo)
+
+
+def test_chained_chdirs_compose():
+    """env applies each -C in turn, so they stack."""
+    from theustadlib.verifier import launcher_working_directory
+
+    argv = ["env", "-C", "a", "-C", "b", "python", "-m", "pytest"]
+
+    assert launcher_working_directory(argv, "/repo") == Path("/repo/a/b")

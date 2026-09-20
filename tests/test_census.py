@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+import theustad
 from theustadlib import census
 
 
@@ -518,3 +519,34 @@ def test_a_baseline_of_nothing_that_ran_supervises_nothing():
     assert census.required({"::tests.test_v": "error"}) == set()
     assert census.required({"t::a": "skipped", "t::b": "error"}) == set()
     assert census.required({"t::a": "passed", "t::b": "error"}) == {"t::a"}
+
+
+def test_a_relative_state_directory_is_resolved_before_the_verifier_sees_it(
+    tmp_path, monkeypatch
+):
+    """The report path is handed to a verifier whose cwd is the repository.
+
+    Left relative, pytest writes it beside the code while TheUstad reads it
+    beside the caller, and the census stands down over a report that was
+    written all along -- leaving the artifact in the repository too.
+    """
+    repo = _repo(tmp_path)
+    caller = tmp_path / "caller"
+    caller.mkdir()
+    monkeypatch.chdir(caller)
+
+    runner = theustad.TheUstadRunner(
+        repo=repo,
+        task="t",
+        session=None,
+        verifier_argv=[sys.executable, "-B", "-m", "pytest", "-q"],
+        patterns=["tests/**"],
+        state_dir="state",
+        log_dir="logs",
+        max_retries=0,
+        timeout=60,
+    )
+
+    assert runner.state_dir.is_absolute()
+    assert runner.log_dir.is_absolute()
+    assert runner.state_dir == (caller / "state").resolve()

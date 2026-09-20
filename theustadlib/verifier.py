@@ -144,6 +144,24 @@ def _env_index(argv: Sequence[str], before: int) -> int | None:
     return None
 
 
+def launcher_working_directory(
+    argv: Sequence[str], start: str | os.PathLike[str]
+) -> Path:
+    """Where the launched command will actually run.
+
+    ``env -C DIR`` changes the command's working directory, and a relative
+    ``-X pycache_prefix`` is resolved by CPython against *that*, not against
+    the directory TheUstad launched from.  Resolving it from the repository
+    root reads ``-C tests -X pycache_prefix=../tests/cache`` as landing
+    outside the repository when it lands in ``tests/cache``, inside it.
+    """
+    working = Path(start)
+    for kind, value, _ in _launcher_actions(argv, len(argv)):
+        if kind == "chdir" and value:
+            working = working / value
+    return working.resolve(strict=False)
+
+
 def launcher_operands(argv: Sequence[str]) -> frozenset[int]:
     """Indices holding a launcher option's value rather than a command.
 
@@ -395,7 +413,7 @@ def _candidate_conflict(
     repository = Path(repo).resolve(strict=False)
     resolved = Path(prefix)
     if not resolved.is_absolute():
-        resolved = repository / resolved
+        resolved = launcher_working_directory(argv, repository) / resolved
     resolved = resolved.resolve(strict=False)
     if resolved == repository or repository in resolved.parents:
         return (

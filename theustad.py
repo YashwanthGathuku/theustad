@@ -183,8 +183,13 @@ class TheUstadRunner:
         self.session = session
         self.verifier_argv = tuple(verifier_argv)
         self.patterns = tuple(patterns)
-        self.state_dir = Path(state_dir)
-        self.log_dir = Path(log_dir)
+        # Resolved here, not where they are used: the census report path is
+        # handed to a verifier whose working directory is the repository, so
+        # a relative --state-dir would have pytest write beside the code
+        # while TheUstad reads beside the caller, and the census would stand
+        # down over a report that was written all along.
+        self.state_dir = Path(state_dir).resolve()
+        self.log_dir = Path(log_dir).resolve()
         self.max_retries = max_retries
         self.timeout = timeout
         self.with_census = with_census
