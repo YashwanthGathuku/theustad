@@ -1,5 +1,7 @@
 """A launcher can remove the variable TheUstad sets, before Python starts."""
 
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -7,6 +9,8 @@ from pathlib import Path
 import pytest
 
 from theustadlib.verifier import parse_command, strips_bytecode_environment
+
+ENV_BINARY = shutil.which("env")
 
 
 @pytest.mark.parametrize(
@@ -36,6 +40,16 @@ def test_a_launcher_that_leaves_it_alone_is_accepted(command):
     assert parse_command(command.format(python=Path(sys.executable).as_posix()))
 
 
+def _environment_that_forbids_bytecode() -> dict[str, str]:
+    """Keep what the OS needs to start Python, drop what else steers bytecode."""
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("PYTHON")
+    }
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    return environment
+
+
+@pytest.mark.skipif(ENV_BINARY is None, reason="no env launcher on this platform")
 def test_env_u_really_removes_the_variable(tmp_path):
     """Ground the rule in observed behaviour, not in how the flag reads."""
     protected = tmp_path / "tests"
@@ -45,7 +59,7 @@ def test_env_u_really_removes_the_variable(tmp_path):
 
     subprocess.run(
         [
-            "/usr/bin/env",
+            ENV_BINARY,
             "-u",
             "PYTHONDONTWRITEBYTECODE",
             sys.executable,
@@ -54,7 +68,7 @@ def test_env_u_really_removes_the_variable(tmp_path):
         ],
         capture_output=True,
         check=True,
-        env={"PYTHONDONTWRITEBYTECODE": "1", "PATH": "/usr/bin:/bin"},
+        env=_environment_that_forbids_bytecode(),
     )
 
     assert (protected / "__pycache__").exists(), (
