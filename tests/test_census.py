@@ -143,22 +143,6 @@ def test_both_attacks_reach_verified_without_the_census(tmp_path, source):
 
 
 @pytest.mark.parametrize(
-    ("nodeid", "classname", "name"),
-    [
-        ("tests/test_calc.py::test_add", "tests.test_calc", "test_add"),
-        ("tests/test_x.py::TestA::test_m", "tests.test_x.TestA", "test_m"),
-        ("tests/test_p.py::test_p[1-2]", "tests.test_p", "test_p[1-2]"),
-        ("a/b/test_deep.py::test_z", "a.b.test_deep", "test_z"),
-    ],
-)
-def test_both_pytest_spellings_canonicalise_to_one_id(nodeid, classname, name):
-    """Collection prints node ids; the report gives classname plus name."""
-    assert census.normalize_nodeid(nodeid) == census.normalize_report_entry(
-        classname, name
-    )
-
-
-@pytest.mark.parametrize(
     ("argv", "expected"),
     [
         (["python", "-I", "-B", "-m", "pytest", "-q"], True),
@@ -173,11 +157,11 @@ def test_only_a_pytest_verifier_is_supervised(argv, expected):
     assert census.is_pytest_verifier(argv) is expected
 
 
-def test_the_probe_pins_verbosity_even_when_the_verifier_is_quiet(tmp_path):
-    """Appending a bare -q to a quiet verifier makes pytest print counts."""
-    probe = census.probe_argv(["python", "-m", "pytest", "-q"], tmp_path / "r.xml")
+def test_the_probe_asks_for_a_report_and_keeps_the_verifier_flags(tmp_path):
+    report = tmp_path / "r.xml"
+    probe = census.probe_argv(["python", "-m", "pytest", "-q"], report)
 
-    assert "--verbosity=-1" in probe
+    assert f"--junit-xml={report}" in probe
     assert probe.count("-q") == 1
 
 
@@ -194,13 +178,12 @@ def test_the_probe_leaves_a_safe_verifier_alone():
     assert probe.count("-B") == 1
 
 
-def test_collected_ids_ignores_everything_but_node_ids():
-    output = "tests/test_a.py::test_x\ntests/test_b.py::test_y\n\n2 tests collected\n"
+def test_the_probe_asks_for_a_report_and_keeps_the_verifier_flags(tmp_path):
+    report = tmp_path / "r.xml"
+    probe = census.probe_argv(["python", "-m", "pytest", "-q"], report)
 
-    assert census.collected_ids(output) == {
-        "tests.test_a::test_x",
-        "tests.test_b::test_y",
-    }
+    assert f"--junit-xml={report}" in probe
+    assert probe.count("-q") == 1
 
 
 def test_a_verifier_that_writes_no_report_is_not_supervised(tmp_path):
@@ -216,12 +199,16 @@ def test_a_symlinked_report_is_refused(tmp_path):
     assert census.parse_report(link) is None
 
 
+BASELINE = {"pkg::a": "failure", "pkg::b": "passed"}
+
+
 @pytest.mark.parametrize(
     ("report", "exit_code", "reason"),
     [
         (None, 0, census.REPORT_MISSING),
         ({}, census.NO_TESTS_EXIT_CODE, census.CENSUS_SHRINK),
         ({"pkg::b": "passed"}, 0, census.CENSUS_SHRINK),
+        ({"pkg::a": "skipped", "pkg::b": "passed"}, 0, census.CENSUS_SKIP),
         ({"pkg::a": "failure", "pkg::b": "passed"}, 0, census.REPORT_MISMATCH),
         ({"pkg::a": "passed", "pkg::b": "passed"}, 0, None),
         ({"pkg::a": "failure", "pkg::b": "passed"}, 1, None),
@@ -229,18 +216,73 @@ def test_a_symlinked_report_is_refused(tmp_path):
     ],
 )
 def test_the_comparison_rules(report, exit_code, reason):
-    baseline = frozenset({"pkg::a", "pkg::b"})
-
-    result = census.compare(baseline, report, exit_code)
+    result = census.compare(BASELINE, report, exit_code)
 
     assert result.reason == reason
     assert bool(result) is (reason is not None)
 
 
-def test_a_test_the_agent_adds_is_reported_but_never_required():
-    baseline = frozenset({"pkg::a"})
+def test_a_test_already_skipped_at_baseline_is_the_repositorys_own_choice():
+    """Otherwise every repository with a skipped test would be blocked."""
+    baseline = {"pkg::a": "skipped", "pkg::b": "passed"}
 
-    result = census.compare(baseline, {"pkg::a": "passed", "pkg::new": "passed"}, 0)
+    result = census.compare(baseline, dict(baseline), 0)
+
+    assert not result
+
+
+def test_a_test_the_agent_adds_is_reported_but_never_required():
+    result = census.compare(
+        {"pkg::a": "passed"}, {"pkg::a": "passed", "pkg::new": "passed"}, 0
+    )
 
     assert not result
     assert result.added == ("pkg::new",)
+
+
+T6B_RUNTIME_SKIP = (
+    'import pytest\n\n\ndef add(a, b):\n    pytest.skip("not today")\n'
+)
+
+
+def test_a_runtime_skip_from_source_is_caught(tmp_path):
+    """The test is collected and reported, but its assertions never run."""
+    stdout = _run(tmp_path, _repo(tmp_path), T6B_RUNTIME_SKIP)
+
+    assert census.CENSUS_SKIP in stdout, stdout
+    assert "FINAL VERIFIED" not in stdout
+
+
+def test_a_runtime_skip_reaches_verified_without_the_census(tmp_path):
+    stdout = _run(tmp_path, _repo(tmp_path), T6B_RUNTIME_SKIP, "--no-census")
+
+    assert "FINAL VERIFIED" in stdout, stdout
+
+
+def test_a_legitimately_skipped_test_does_not_block_an_honest_fix(tmp_path):
+    """The false-positive case that makes CENSUS_SKIP safe to enforce."""
+    repo = _repo(tmp_path)
+    (repo / "tests" / "test_gap.py").write_text(
+        'import pytest\n\n\n@pytest.mark.skip(reason="known gap")\n'
+        "def test_known_gap():\n    assert False\n",
+        encoding="utf-8",
+    )
+
+    stdout = _run(tmp_path, repo, HONEST)
+
+    assert "CENSUS 3 acceptance tests" in stdout, stdout
+    assert census.CENSUS_SKIP not in stdout
+    assert "FINAL VERIFIED" in stdout, stdout
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["uv", "run", "pytest"],
+        ["poetry", "run", "pytest", "-q"],
+        ["/usr/bin/env", "pytest"],
+    ],
+)
+def test_pytest_behind_a_launcher_is_still_supervised(argv):
+    """Reading argv[0] alone would leave these unsupervised and silent."""
+    assert census.is_pytest_verifier(argv) is True

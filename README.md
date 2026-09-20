@@ -227,8 +227,11 @@ TheUstad starts both the agent and the verifier with
 check reports an honest round as `TAMPERED`. A `.pyc` file that TheUstad did not
 cause is still reported, so planted bytecode remains detectable.
 
-Isolated Python ignores that variable: `-I` implies `-E`, which drops every
-`PYTHON*` setting. A custom verifier such as `python -I -m pytest -q` is
+Two things defeat that variable before Python reads it. Isolated Python
+ignores it outright: `-I` implies `-E`, which drops every `PYTHON*` setting.
+A launcher can also remove it — `env -i` clears the environment and
+`env -u PYTHONDONTWRITEBYTECODE` drops exactly this variable — so those are
+refused too unless the command is made safe another way. A custom verifier such as `python -I -m pytest -q` is
 therefore refused, because it would fail an honest run. Add `-B`, or
 `-X pycache_prefix=DIR` — both are command-line options that isolated mode still
 honours. The default verifier already passes `-B`.
@@ -262,16 +265,21 @@ FINAL FALSIFIED
 ```
 
 Reasons are `CENSUS_SHRINK` (a recorded test did not run, including pytest's
-"no tests collected"), `REPORT_MISSING` (no usable report, so nothing shows the
-tests ran) and `REPORT_MISMATCH` (the verifier reported success while its own
-report holds failures). Tests the agent adds are reported but never counted
-toward acceptance.
+"no tests collected"), `CENSUS_SKIP` (a test that ran at baseline is skipped
+now — the assertions were removed whatever the exit code says),
+`REPORT_MISSING` (no usable report, so nothing shows the tests ran) and
+`REPORT_MISMATCH` (the verifier reported success while its own report holds
+failures). Tests the agent adds are reported but never counted toward
+acceptance, and a test already skipped at baseline is the repository's own
+choice and is left alone.
 
-The baseline is a collection pass, not a second full run, and the acceptance
-run gains only a reporting flag — it cannot change which tests are selected or
-what they assert, so the verifier stays the oracle. The census supervises only
-a recognised pytest verifier that answers that flag; anything else is left
-alone rather than blocked. `--no-census` disables it.
+The baseline is one verifier run recorded before the agent starts, and the
+acceptance run gains only a reporting flag — it cannot change which tests are
+selected or what they assert, so the verifier stays the oracle. pytest is
+recognised behind a launcher too (`uv run pytest`, `poetry run pytest`,
+`env pytest`), because leaving those unsupervised would be silent. Anything
+that is not pytest, or does not answer the report flag, is left alone rather
+than blocked. `--no-census` disables the census.
 
 If the configured patterns match nothing, TheUstad prints `PROTECTED 0 paths`
 with a warning and records it in the audit chain: a run with an empty baseline

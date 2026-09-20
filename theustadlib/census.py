@@ -27,6 +27,7 @@ from .verifier import ignores_bytecode_environment, interpreter_index
 REPORT_MISSING = "REPORT_MISSING"
 REPORT_MISMATCH = "REPORT_MISMATCH"
 CENSUS_SHRINK = "CENSUS_SHRINK"
+CENSUS_SKIP = "CENSUS_SKIP"
 NO_TESTS_EXIT_CODE = 5
 
 
@@ -49,12 +50,16 @@ def _is_pytest_token(token: str) -> bool:
 
 
 def is_pytest_verifier(argv: Sequence[str]) -> bool:
-    """Report whether this verifier runs pytest, the only adapter we have."""
-    if not argv:
-        return False
-    if _is_pytest_token(argv[0]):
-        return True
+    """Report whether this verifier runs pytest, the only adapter we have.
+
+    pytest is looked for anywhere in argv, not only at ``argv[0]``: under
+    ``uv run pytest``, ``poetry run pytest`` or ``env pytest`` the launcher
+    holds that slot, and reading it alone would leave those verifiers
+    unsupervised while the census reported nothing at all.
+    """
     for index, token in enumerate(argv):
+        if _is_pytest_token(token):
+            return True
         if token == "-m" and index + 1 < len(argv):
             return argv[index + 1].split(".")[0] == "pytest"
         if token in ("-c", "--"):
@@ -63,30 +68,19 @@ def is_pytest_verifier(argv: Sequence[str]) -> bool:
 
 
 def canonical_id(module_path: str, name: str) -> str:
-    """Return one spelling for a test, whichever side of pytest names it.
+    """Return one spelling for a test.
 
-    ``--collect-only`` prints ``tests/test_x.py::TestA::test_m`` while the
-    JUnit report gives ``classname="tests.test_x.TestA" name="test_m"``.
-    Reducing the module path to dots makes the two identical without having
-    to guess where the path stops and the class begins.
+    Both the baseline and the verification run are read from the same report,
+    so the two sides agree by construction rather than by translation.
     """
     return f"{module_path}::{name}"
 
 
-def normalize_nodeid(nodeid: str) -> str | None:
-    """Canonicalise a ``--collect-only`` node id."""
-    if "::" not in nodeid:
-        return None
-    head, _, tail = nodeid.partition("::")
-    if not head.endswith(".py"):
-        return None
-    module = head[: -len(".py")].replace("\\", "/").strip("/").replace("/", ".")
-    parts = tail.split("::")
-    name = parts[-1]
-    owner = ".".join([module, *parts[:-1]])
-    return canonical_id(owner, name)
-
-
+    # The probe also asks for a report. Whether one appears is how TheUstad
+    # learns that this verifier answers the flag at all, so that a later
+    # missing report means something happened rather than that the verifier
+    # never wrote one.
+    return [*report_argv(probe, report), "-p", "no:cacheprovider"]
 def normalize_report_entry(classname: str | None, name: str | None) -> str | None:
     if not name:
         return None
@@ -115,23 +109,7 @@ def probe_argv(argv: Sequence[str], report: str | Path) -> list[str]:
     # learns that this verifier answers the flag at all, so that a later
     # missing report means something happened rather than that the verifier
     # never wrote one.
-    return [
-        *report_argv(probe, report),
-        "--collect-only",
-        "--verbosity=-1",
-        "-p",
-        "no:cacheprovider",
-    ]
-
-
-def collected_ids(output: str) -> frozenset[str]:
-    """Read the node ids a collection pass printed."""
-    identifiers = set()
-    for line in (output or "").splitlines():
-        normalized = normalize_nodeid(line.strip())
-        if normalized is not None:
-            identifiers.add(normalized)
-    return frozenset(identifiers)
+    return [*report_argv(probe, report), "-p", "no:cacheprovider"]
 
 
 def report_argv(argv: Sequence[str], report: str | Path) -> list[str]:
@@ -172,7 +150,7 @@ def parse_report(path: str | Path) -> dict[str, str] | None:
 
 
 def compare(
-    baseline: frozenset[str],
+    baseline: dict[str, str],
     report: dict[str, str] | None,
     exit_code: int,
 ) -> CensusResult:
@@ -191,12 +169,30 @@ def compare(
             missing=tuple(sorted(baseline)),
         )
 
-    missing = tuple(sorted(baseline - set(report)))
+    missing = tuple(sorted(set(baseline) - set(report)))
     if missing:
         return CensusResult(
             CENSUS_SHRINK,
             f"{len(missing)} test(s) recorded at baseline did not run",
             missing=missing,
+        )
+
+    # A test the suite ran at baseline and skips now had its assertions
+    # removed, whatever the exit code says. One that was already skipped at
+    # baseline is the repository's own choice and is left alone.
+    newly_skipped = tuple(
+        sorted(
+            identifier
+            for identifier, outcome in report.items()
+            if outcome == "skipped"
+            and baseline.get(identifier, "skipped") != "skipped"
+        )
+    )
+    if newly_skipped:
+        return CensusResult(
+            CENSUS_SKIP,
+            f"{len(newly_skipped)} test(s) that ran at baseline were skipped",
+            missing=newly_skipped,
         )
 
     unsuccessful = sorted(
@@ -211,5 +207,5 @@ def compare(
             "failed in its own report",
         )
 
-    added = tuple(sorted(set(report) - baseline))
+    added = tuple(sorted(set(report) - set(baseline)))
     return CensusResult(None, "every recorded acceptance test ran", added=added)

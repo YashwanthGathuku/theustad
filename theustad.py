@@ -281,7 +281,7 @@ class TheUstadRunner:
             )
             self.output(NO_PROTECTED_INPUTS)
 
-        baseline_census: frozenset[str] | None = None
+        baseline_census: dict[str, str] | None = None
         if self.with_census and census.is_pytest_verifier(self.verifier_argv):
             # Taken before the agent runs: a module-level skip planted later
             # removes tests from collection, so a late census is already shrunk.
@@ -292,8 +292,8 @@ class TheUstadRunner:
                 self.repo,
                 self.timeout,
             )
-            collected = census.collected_ids(probe.output)
-            if collected and probe_report.is_file():
+            collected = census.parse_report(probe_report)
+            if collected:
                 baseline_census = collected
                 self.output(f"CENSUS {len(collected)} acceptance tests")
             else:

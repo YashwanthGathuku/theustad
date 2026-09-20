@@ -19,6 +19,8 @@ _SHELL_OPERATOR_CHARS = frozenset("|&;<>")
 # Options whose short-flag cluster consumes a value, ending the cluster.
 _VALUE_OPTIONS = frozenset("XWQ")
 _PYCACHE_PREFIX = "pycache_prefix="
+BYTECODE_VARIABLE = "PYTHONDONTWRITEBYTECODE"
+_ENV_IGNORE = ("-i", "--ignore-environment")
 # The only CPython long option that takes a separate value; skipping it
 # without its value would end the scan on the value token.
 _VALUE_LONG_OPTIONS = frozenset({"--check-hash-based-pycs"})
@@ -56,6 +58,36 @@ def interpreter_index(argv: Sequence[str]) -> int | None:
         if _is_python_interpreter(token):
             return index
     return None
+
+
+def strips_bytecode_environment(argv: Sequence[str], before: int) -> bool:
+    """Report a launcher that removes the variable TheUstad sets.
+
+    ``env -i`` clears the whole environment and ``env -u NAME`` drops one
+    variable, both before the interpreter ever starts, so inspecting only
+    interpreter flags would miss it and an honest run would be reported as
+    TAMPERED.
+    """
+    index = 0
+    while index < before:
+        token = argv[index]
+        if token in _ENV_IGNORE:
+            return True
+        if token.startswith("--unset="):
+            if token[len("--unset=") :] == BYTECODE_VARIABLE:
+                return True
+        elif token == "-u":
+            if index + 1 < before and argv[index + 1] == BYTECODE_VARIABLE:
+                return True
+            index += 1
+        elif (
+            token.startswith("-")
+            and not token.startswith("--")
+            and "i" in token[1:]
+        ):
+            return True
+        index += 1
+    return False
 
 
 def scan_interpreter_flags(
@@ -120,7 +152,7 @@ def ignores_bytecode_environment(argv: Sequence[str]) -> bool:
     if index is None:
         return False
     flags = scan_interpreter_flags(argv, index + 1)
-    if not flags.ignores_environment:
+    if not (flags.ignores_environment or strips_bytecode_environment(argv, index)):
         return False
     return not (flags.suppresses_writes or flags.pycache_prefix)
 
@@ -139,7 +171,7 @@ def bytecode_conflict(
     if index is None:
         return None
     flags = scan_interpreter_flags(argv, index + 1)
-    if not flags.ignores_environment or flags.suppresses_writes:
+    if not (flags.ignores_environment or strips_bytecode_environment(argv, index)) or flags.suppresses_writes:
         return None
 
     prefix = flags.pycache_prefix
