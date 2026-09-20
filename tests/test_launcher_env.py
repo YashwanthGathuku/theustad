@@ -10,7 +10,11 @@ import pytest
 
 from theustadlib.verifier import parse_command, strips_bytecode_environment
 
-ENV_BINARY = shutil.which("env")
+# The rule under test is about POSIX launchers, and so is the evidence for
+# it.  Windows ships an MSYS env.EXE with Git, but it rewrites arguments on
+# its way to a native interpreter, which makes it an unreliable witness to
+# what plain coreutils env does.  The parse-side guard is checked everywhere.
+POSIX_ENV = shutil.which("env") if os.name == "posix" else None
 
 
 @pytest.mark.parametrize(
@@ -49,7 +53,7 @@ def _environment_that_forbids_bytecode() -> dict[str, str]:
     return environment
 
 
-@pytest.mark.skipif(ENV_BINARY is None, reason="no env launcher on this platform")
+@pytest.mark.skipif(POSIX_ENV is None, reason="no POSIX env launcher here")
 def test_env_u_really_removes_the_variable(tmp_path):
     """Ground the rule in observed behaviour, not in how the flag reads."""
     protected = tmp_path / "tests"
@@ -59,7 +63,7 @@ def test_env_u_really_removes_the_variable(tmp_path):
 
     subprocess.run(
         [
-            ENV_BINARY,
+            POSIX_ENV,
             "-u",
             "PYTHONDONTWRITEBYTECODE",
             sys.executable,
