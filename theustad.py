@@ -3,18 +3,21 @@
 
 import argparse
 import json
+import math
 import os
 import shlex
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, TextIO
 
+from theustadlib import census, enrollment, hookadapter
+from theustadlib.census import CENSUS_EVIDENCE, CENSUS_UNSUPERVISED
 from theustadlib.chain import AuditChain
-from theustadlib import enrollment, hookadapter
 from theustadlib.chain import verify as verify_audit_chain
 from theustadlib.claims import Claim, find_claims
 from theustadlib.freezer import (
@@ -140,6 +143,12 @@ STATUS_REQUEST = (
     "completion claim. Reply once with an explicit completion status."
 )
 
+NO_PROTECTED_INPUTS = (
+    "THEUSTAD_WARNING no protected inputs matched; TAMPERED can never be "
+    "reported for this run. Point --protect/--protect-add at the real test "
+    "and verifier-configuration paths before trusting the verdict."
+)
+
 
 class TheUstadRunner:
     """Execute TheUstad's ordered verification-and-retry loop."""
@@ -156,7 +165,9 @@ class TheUstadRunner:
         log_dir: str | os.PathLike[str],
         max_retries: int,
         timeout: float,
+        with_census: bool = True,
         verifier_runner: VerifierRunner = run_verifier,
+        census_runner: VerifierRunner | None = None,
         claim_finder: ClaimFinder = find_claims,
         output: Output = _console_output,
     ):
@@ -172,11 +183,21 @@ class TheUstadRunner:
         self.session = session
         self.verifier_argv = tuple(verifier_argv)
         self.patterns = tuple(patterns)
-        self.state_dir = Path(state_dir)
-        self.log_dir = Path(log_dir)
+        # Resolved here, not where they are used: the census report path is
+        # handed to a verifier whose working directory is the repository, so
+        # a relative --state-dir would have pytest write beside the code
+        # while TheUstad reads beside the caller, and the census would stand
+        # down over a report that was written all along.
+        self.state_dir = Path(state_dir).resolve()
+        self.log_dir = Path(log_dir).resolve()
         self.max_retries = max_retries
         self.timeout = timeout
+        self.with_census = with_census
         self.verifier_runner = verifier_runner
+        # The census probe is TheUstad's own measurement, never the acceptance
+        # oracle, so it is kept off the verifier hook: "the verifier ran once,
+        # and only when it should" stays a checkable property.
+        self.census_runner = census_runner or run_verifier
         self.claim_finder = claim_finder
         self.output = output
 
@@ -248,6 +269,57 @@ class TheUstadRunner:
     def run(self) -> TheUstadResult:
         manifest = freeze(self.repo, self.patterns, self.state_dir)
         audit = AuditChain(self.log_dir)
+        self.output(f"PROTECTED {len(manifest.entries)} paths")
+        if not manifest.entries:
+            # An empty manifest silently voids the whole anti-tampering
+            # guarantee, so it must never be indistinguishable from a real one.
+            audit.append(
+                round_number=0,
+                kind="warning",
+                data={"message": NO_PROTECTED_INPUTS, "patterns": list(self.patterns)},
+            )
+            self.output(NO_PROTECTED_INPUTS)
+
+        baseline_census: dict[str, str] | None = None
+        if self.with_census and not census.is_pytest_verifier(self.verifier_argv):
+            # Hook mode says this at SessionStart and the README promises both
+            # interfaces do. Standing down silently here was the same hole in
+            # the other half of the product.
+            self.output(CENSUS_UNSUPERVISED.format(detail="not supervising"))
+        if self.with_census and census.is_pytest_verifier(self.verifier_argv):
+            # Taken before the agent runs: a module-level skip planted later
+            # removes tests from collection, so a late census is already shrunk.
+            self.state_dir.mkdir(parents=True, exist_ok=True)
+            probe_report = self.state_dir / "census-baseline.xml"
+            census.clear_report(probe_report)
+            probe = self.census_runner(
+                census.probe_argv(self.verifier_argv, probe_report),
+                self.repo,
+                self.timeout,
+            )
+            collected = census.parse_report(probe_report)
+            if collected and not census.required(collected):
+                # Nothing in the baseline actually ran, so there is nothing to
+                # supervise -- and saying so beats arming on an empty promise.
+                collected = None
+            # Not left behind: a round's report only has to look like this
+            # one, and the verifier process can reach this directory.
+            census.clear_report(probe_report)
+            if collected:
+                baseline_census = collected
+                self.output(
+                    f"CENSUS {len(census.required(collected))} acceptance tests"
+                )
+            else:
+                # Either nothing was collected, or this verifier does not write
+                # the report the census reads. Neither is the agent's doing, so
+                # the census stands down instead of blocking every round -- but
+                # standing down looks exactly like having nothing to report, so
+                # it is said out loud rather than left to the audit chain.
+                self.output(
+                    CENSUS_UNSUPERVISED.format(detail="no usable baseline report")
+                )
+
         rounds: list[RoundResult] = []
         resume_message: str | None = None
         status_resume_used = False
@@ -270,6 +342,7 @@ class TheUstadRunner:
             claims: tuple[Claim, ...] = ()
             verification: VerificationResult | None = None
             tampering: Tampering | None = None
+            census_result: census.CensusResult | None = None
 
             tampering = check(self.repo, manifest)
             self._record_session(audit, round_number, agent_result)
@@ -306,11 +379,21 @@ class TheUstadRunner:
                     )
                     verdict = Verdict.TAMPERED
                 else:
+                    report_path = self.state_dir / f"census-{round_number}.xml"
+                    census.clear_report(report_path)
                     verification = self.verifier_runner(
-                        self.verifier_argv,
+                        census.report_argv(self.verifier_argv, report_path)
+                        if baseline_census is not None
+                        else self.verifier_argv,
                         self.repo,
                         self.timeout,
                     )
+                    if baseline_census is not None:
+                        census_result = census.compare(
+                            baseline_census,
+                            census.parse_report(report_path),
+                            verification.exit_code,
+                        )
                     tampering = check(self.repo, manifest)
                     if tampering:
                         self._restore_tampering(
@@ -322,7 +405,26 @@ class TheUstadRunner:
                         )
                         verdict = Verdict.TAMPERED
                     else:
-                        verdict = verdict_for(claims, verification.exit_code)
+                        # A census failure means the exit code is not evidence,
+                        # so it cannot carry the round to VERIFIED.
+                        effective_exit = verification.exit_code or (
+                            1 if census_result else 0
+                        )
+                        verdict = verdict_for(claims, effective_exit)
+                        if census_result:
+                            audit.append(
+                                round_number=round_number,
+                                kind="warning",
+                                data={
+                                    "message": census_result.detail,
+                                    "reason": census_result.reason,
+                                    "missing": list(census_result.missing),
+                                },
+                            )
+                            self.output(
+                                f"CENSUS {census_result.reason} "
+                                f"{census_result.detail}"
+                            )
                     if verification.warning:
                         audit.append(
                             round_number=round_number,
@@ -360,6 +462,17 @@ class TheUstadRunner:
                 resume_message = _tamper_resume_message(round_result.tampering)
             elif verification is not None:
                 resume_message = _evidence_resume_message(verdict, verification)
+                # Same rule as hook mode: the census only explains a round the
+                # verifier itself called a success.
+                if census_result and verification.exit_code == 0:
+                    resume_message = (
+                        CENSUS_EVIDENCE.format(
+                            reason=census_result.reason,
+                            detail=census_result.detail,
+                        )
+                        + "\n\n"
+                        + resume_message
+                    )
             else:
                 break
 
@@ -415,12 +528,35 @@ def _command_argv(command: str, label: str) -> list[str]:
     return argv
 
 
+TASK_FILE_SUFFIXES = frozenset({".md", ".markdown", ".rst", ".txt"})
+
+
+def _looks_like_task_path(value: str) -> bool:
+    """Report whether ``--task`` was meant as a file rather than inline text."""
+    if value != value.strip() or len(value.split()) != 1:
+        return False
+    candidate = Path(value)
+    if candidate.suffix.lower() in TASK_FILE_SUFFIXES:
+        return True
+    separators = {separator for separator in (os.sep, os.altsep) if separator}
+    if not any(separator in value for separator in separators):
+        return False
+    # A separator alone is not enough: "refactor/rename" is an instruction,
+    # not a path. Treat it as a path only when the directory it names exists.
+    parent = candidate.parent
+    return parent != Path(".") and parent.is_dir()
+
+
 def _task_text(value: str | None) -> str:
     if value is None:
         return "Complete the repository task and report an explicit status."
     candidate = Path(value)
     if candidate.is_file():
         return candidate.read_text(encoding="utf-8")
+    if _looks_like_task_path(value):
+        # Silently prompting the agent with a mistyped path burns the whole
+        # retry budget and records a meaningless audit chain.
+        raise ValueError(f"task file not found: {candidate}")
     return value
 
 
@@ -465,6 +601,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=_positive, default=600.0)
     parser.add_argument("--log", type=Path, help="directory for timestamped audit logs")
     parser.add_argument("--no-color", action="store_true")
+    parser.add_argument(
+        "--no-census",
+        action="store_true",
+        help="skip the pytest test census (one extra verifier run at baseline)",
+    )
     return parser
 
 
@@ -499,9 +640,27 @@ def build_hook_parser() -> argparse.ArgumentParser:
     )
     enroll_parser.add_argument("--timeout", type=_positive, default=300.0)
     enroll_parser.add_argument(
+        "--hook-timeout",
+        type=_positive,
+        help=(
+            "seconds emitted as the host hook timeout; defaults to the verifier "
+            f"deadline plus {enrollment.MIN_HOOK_MARGIN:g}s"
+        ),
+    )
+    enroll_parser.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="time the verifier first and refuse an unsafe hook timeout",
+    )
+    enroll_parser.add_argument(
         "--max-blocks", type=_positive_integer, default=5, metavar="N"
     )
     enroll_parser.add_argument("--require-claim", action="store_true")
+    enroll_parser.add_argument(
+        "--no-census",
+        action="store_true",
+        help="skip the pytest test census (one extra verifier run per session)",
+    )
 
     status_parser = commands.add_parser("status")
     status_parser.add_argument("--repo", required=True, type=Path)
@@ -531,38 +690,97 @@ def _hook_patterns(args: argparse.Namespace) -> tuple[str, ...]:
     return (*base, *_flatten_patterns(args.protect_add))
 
 
-def _claude_hook_settings() -> dict[str, Any]:
+def _claude_hook_settings(hook_timeout: float) -> dict[str, Any]:
     python = str(Path(sys.executable).resolve(strict=True))
     cli = str(Path(__file__).resolve(strict=True))
+    # An omitted timeout leaves the host's default in force, which may sit
+    # below the verifier deadline; a cancelled hook renders no decision.
+    timeout = int(math.ceil(hook_timeout))
 
-    def command(event: str) -> str:
-        return shlex.join([python, cli, "hook", "claude", event])
-
-    return {
-        "hooks": {
-            "SessionStart": [
+    def entry(event: str) -> dict[str, Any]:
+        return {
+            "hooks": [
                 {
-                    "hooks": [
-                        {"type": "command", "command": command("SessionStart")}
-                    ]
+                    "type": "command",
+                    "command": shlex.join([python, cli, "hook", "claude", event]),
+                    "timeout": timeout,
                 }
-            ],
-            "Stop": [
-                {
-                    "hooks": [
-                        {"type": "command", "command": command("Stop")}
-                    ]
-                }
-            ],
+            ]
         }
-    }
+
+    return {"hooks": {"SessionStart": [entry("SessionStart")], "Stop": [entry("Stop")]}}
+
+
+def _calibrate(
+    repo: Path, verifier_argv: Sequence[str], timeout: float, runs: int = 3
+) -> tuple[float, bool]:
+    """Time the verifier under the deadline TheUstad will actually enforce.
+
+    Measuring against the outer hook budget instead would accept a verifier
+    that finishes inside the hook timeout but never inside its own deadline,
+    so every real Stop would time out and the run could never verify.
+    """
+    durations: list[float] = []
+    timed_out = False
+    for attempt in range(1, runs + 1):
+        started = time.monotonic()
+        result = run_verifier(verifier_argv, repo, timeout)
+        elapsed = time.monotonic() - started
+        durations.append(elapsed)
+        _console_output(
+            f"CALIBRATE run {attempt}/{runs} {elapsed:.1f}s exit {result.exit_code}"
+            + (" TIMEOUT" if result.timed_out else "")
+        )
+        if result.timed_out:
+            # The outcome is already decided; further runs only burn deadlines.
+            timed_out = True
+            break
+    # Nearest-rank p95; with three runs that is the slowest one, stated plainly.
+    ordered = sorted(durations)
+    index = min(len(ordered) - 1, math.ceil(0.95 * len(ordered)) - 1)
+    return ordered[index], timed_out
 
 
 def _enroll(args: argparse.Namespace) -> int:
     repo = args.repo.resolve(strict=True)
     verifier_argv = (
-        parse_verifier_command(args.verifier) if args.verifier else default_argv()
+        parse_verifier_command(args.verifier, repo)
+        if args.verifier
+        else default_argv()
     )
+    hook_timeout = args.hook_timeout
+    if hook_timeout is None:
+        hook_timeout = args.timeout + enrollment.MIN_HOOK_MARGIN
+
+    if hook_timeout < args.timeout + enrollment.MIN_HOOK_MARGIN - 1e-6:
+        # Pure arithmetic: fail before spending three verifier runs on it.
+        raise ValueError(
+            f"hook timeout {hook_timeout:g}s leaves less than "
+            f"{enrollment.MIN_HOOK_MARGIN:g}s above the {args.timeout:g}s "
+            "verifier deadline; the host would cancel the hook and render no "
+            f"decision. Use --hook-timeout "
+            f"{math.ceil(args.timeout + enrollment.MIN_HOOK_MARGIN)} "
+            "or lower --timeout."
+        )
+
+    if args.calibrate:
+        p95, timed_out = _calibrate(repo, verifier_argv, args.timeout)
+        _console_output(f"CALIBRATE p95 {p95:.1f}s (slowest of 3 runs)")
+        if timed_out or p95 >= args.timeout:
+            raise ValueError(
+                f"verifier p95 {p95:.1f}s does not fit the {args.timeout:g}s "
+                "verifier deadline, so every Stop would time out and the run "
+                f"could never verify. Rerun with --timeout {math.ceil(p95) + 1} "
+                "or faster tests."
+            )
+        # The hook budget needs no separate check here: the static relation
+        # above already guarantees hook_timeout >= timeout + margin, and p95
+        # is now known to be under timeout.
+        _console_output(
+            f"CALIBRATE fits VERIFIER_DEADLINE {args.timeout:g}s and "
+            f"HOOK_TIMEOUT {hook_timeout:g}s"
+        )
+
     policy = enrollment.Policy(
         repo=str(repo),
         verifier_argv=tuple(verifier_argv),
@@ -570,16 +788,20 @@ def _enroll(args: argparse.Namespace) -> int:
         timeout=args.timeout,
         max_blocks=args.max_blocks,
         require_claim=args.require_claim,
+        census=not args.no_census,
+        hook_timeout=hook_timeout,
     )
     policy_path = enrollment.save_policy(policy)
     _console_output(f"ENROLLED {repo}")
     _console_output(f"POLICY {policy_path}")
     _console_output(f"STATE {enrollment.repository_state_dir(repo)}")
     _console_output(f"VERIFIER {shlex.join(policy.verifier_argv)}")
+    _console_output(f"VERIFIER_DEADLINE {policy.timeout:g}s")
+    _console_output(f"HOOK_TIMEOUT {policy.hook_timeout:g}s")
     _console_output(
         "Merge this block into ~/.claude/settings.json, then inspect it with /hooks:"
     )
-    _console_output(json.dumps(_claude_hook_settings(), indent=2))
+    _console_output(json.dumps(_claude_hook_settings(policy.hook_timeout), indent=2))
     return 0
 
 
@@ -594,9 +816,12 @@ def _status(args: argparse.Namespace) -> int:
     _console_output(f"POLICY {enrollment.enrollment_path(repo)}")
     _console_output(f"STATE {enrollment.repository_state_dir(repo)}")
     _console_output(f"VERIFIER {shlex.join(policy.verifier_argv)}")
+    _console_output(f"VERIFIER_DEADLINE {policy.timeout:g}s")
+    _console_output(f"HOOK_TIMEOUT {policy.hook_timeout:g}s")
     _console_output(f"PROTECTED_PATTERNS {len(policy.patterns)}")
     _console_output(f"MAX_BLOCKS {policy.max_blocks}")
     _console_output(f"REQUIRE_CLAIM {str(policy.require_claim).lower()}")
+    _console_output(f"CENSUS {str(policy.census).lower()}")
     _console_output(f"AUDIT_CHAINS {len(audits)}")
     return 0
 
@@ -628,10 +853,17 @@ def _verify_hook_chains(args: argparse.Namespace) -> int:
     if not paths:
         _console_output(f"THEUSTAD_ERROR no hook audit chains for {repo}", stream=sys.stderr)
         return 2
+    failures = 0
     for path in paths:
-        count, root = verify_audit_chain(path)
+        try:
+            count, root = verify_audit_chain(path)
+        except (OSError, ValueError) as error:
+            # One unreadable chain must not hide the verdict on every other.
+            failures += 1
+            _console_output(f"BROKEN {path}: {error}", stream=sys.stderr)
+            continue
         _console_output(f"VALID {path}: {count} records, root {root}")
-    return 0
+    return 2 if failures else 0
 
 
 def _hook_command(argv: Sequence[str]) -> int:
@@ -649,8 +881,11 @@ def _hook_command(argv: Sequence[str]) -> int:
         if args.hook_command == "verify-chain":
             return _verify_hook_chains(args)
         raise ValueError(f"unsupported hook command: {args.hook_command}")
-    except (OSError, RuntimeError, ValueError) as error:
-        _console_output(f"THEUSTAD_ERROR {error}", stream=sys.stderr)
+    except Exception as error:
+        # Never let an unexpected exception pick the exit code for us.
+        _console_output(
+            f"THEUSTAD_ERROR {type(error).__name__}: {error}", stream=sys.stderr
+        )
         return 2
 
 
@@ -675,7 +910,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else list(DEFAULT_RESUME_TEMPLATE)
         )
         verifier_argv = (
-            parse_verifier_command(args.verifier)
+            parse_verifier_command(args.verifier, repo)
             if args.verifier
             else default_argv()
         )
@@ -700,10 +935,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             log_dir=log_dir,
             max_retries=args.max_retries,
             timeout=args.timeout,
+            with_census=not args.no_census,
         )
         return runner.run().exit_code
-    except (OSError, ValueError, RuntimeError) as error:
-        _console_output(f"THEUSTAD_ERROR {error}", stream=sys.stderr)
+    except Exception as error:
+        _console_output(
+            f"THEUSTAD_ERROR {type(error).__name__}: {error}", stream=sys.stderr
+        )
         return 2
 
 

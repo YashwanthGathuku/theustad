@@ -133,7 +133,11 @@ def test_real_claim_green_verifier_is_visible_verified(tmp_path, monkeypatch):
     assert "VERIFIED" in response.stdout["systemMessage"]
     records = _audit_records(repo)
     assert records[-1]["data"]["verdict"] == "VERIFIED"
-    assert records[-1]["seq"] == 2
+    # The invariant is that the chain is contiguous and the verdict is its
+    # last record, not that it sits at a particular index: SessionStart adds
+    # a record whenever it has something to warn about, and this fixture's
+    # stub verifier writes no report, so the census correctly says so.
+    assert [record["seq"] for record in records] == list(range(len(records)))
 
 
 def test_deleted_test_is_tampered_and_restored(tmp_path, monkeypatch):
@@ -360,7 +364,13 @@ def test_reenrollment_cannot_change_policy_mid_session(tmp_path, monkeypatch):
     response = _stop(repo)
 
     assert response.exit_code == hookadapter.BLOCK
-    assert observed["argv"] == tuple(default_argv())
+    # The census adds a reporting flag and nothing else: the session policy
+    # still decides which tests run, whatever a later enrollment says.
+    baseline = tuple(default_argv())
+    assert observed["argv"][: len(baseline)] == baseline
+    extra = observed["argv"][len(baseline) :]
+    assert all(item.startswith("--junit-xml=") for item in extra), extra
+    assert all(not item.endswith(str(repo)) for item in extra)
 
 
 def test_stop_refuses_a_rewritten_session_audit(tmp_path, monkeypatch):

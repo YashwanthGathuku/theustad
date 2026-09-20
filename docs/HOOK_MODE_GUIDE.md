@@ -100,8 +100,16 @@ export THEUSTAD_HOME="$HOME/.theustad"
 cd ~/code/theustad
 "$THEUSTAD_PYTHON" theustad.py enroll \
   --repo "$HOME/code/disposable-target" \
-  --max-blocks 5
+  --max-blocks 5 \
+  --calibrate
 ```
+
+`enroll` emits an explicit `timeout` in the hook configuration and refuses a
+verifier deadline that is not at least 15 seconds below it. A cancelled hook
+has its output discarded and renders no decision, so a verifier that can
+outlive the hook is a fail-open path. `--calibrate` times the verifier three
+times before enrolling and names the minimum safe `--hook-timeout` when the
+budget does not fit.
 
 For a non-pytest project, enroll an explicit argv-only verifier and protect its
 inputs:

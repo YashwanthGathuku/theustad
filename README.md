@@ -95,7 +95,7 @@ after installation, then follow [the plugin guide](docs/PLUGIN_GUIDE.md).
 ## Choose an enforcement mode
 
 | Interface | Assurance | Use it for | Entry point |
-|---|---|---|
+|---|---|---|---|
 | Standalone wrapper | Highest | CI, automation, direct review | `python theustad.py --repo ... --task ...` |
 | Codex plugin | Highest | A protected child coding task in Codex | `$theustad:doctor`, `$theustad:run`, `$theustad:audit` |
 | Claude Code hook (experimental) | Guardrail | Automatic verification when Claude tries to stop | `theustad.py enroll` + `SessionStart`/`Stop` hooks |
@@ -156,11 +156,34 @@ runs the fixed enrolled verifier, and returns failure evidence with exit code
 2 so Claude continues working.
 
 ```bash
-python theustad.py enroll --repo /absolute/path/to/project
+python theustad.py enroll --repo /absolute/path/to/project --calibrate
 # Merge the emitted JSON into ~/.claude/settings.json.
 # Start a new Claude Code session in the enrolled repository, then use /hooks
 # to confirm both commands come from User Settings.
 ```
+
+### Hook timeout
+
+A host that cancels a hook at its timeout discards the hook's output and
+renders no decision, so a verifier allowed to outlive the hook turns a blocking
+result into a silent pass. `enroll` therefore emits an explicit `timeout` in
+the hook configuration rather than inheriting the host default, and refuses any
+enrollment whose verifier deadline is not at least 15 seconds below it:
+
+```text
+VERIFIER_DEADLINE 300s
+HOOK_TIMEOUT 315s
+```
+
+`--hook-timeout` sets the emitted value directly. `--calibrate` runs the
+verifier three times under the verifier deadline it will actually be given, and
+refuses to enroll unless the slowest run fits **both** budgets: inside the
+verifier deadline, and inside the hook timeout with the margin to spare. A
+verifier that fits the hook budget but not its own deadline would time out on
+every Stop and never verify, so that is refused too, naming the value to use
+instead of writing a policy that cannot work. A verifier that exceeds its
+deadline at run time is killed by process group and reported as
+`VERIFIER_TIMEOUT` with exit code 2, which blocks.
 
 The hook entry point refuses `--verifier`, `--repo`, `--protect`, timeout, and
 state arguments. It binds the initial `session_id` to the enrolled repository,
@@ -197,6 +220,144 @@ python theustad.py --repo /absolute/path/to/project \
 The custom verifier is the acceptance oracle for that run. Protect all inputs
 it needs before starting; protected files are checked before and after
 verification, and changed inputs are restored and reported as `TAMPERED`.
+
+TheUstad starts both the agent and the verifier with
+`PYTHONDONTWRITEBYTECODE=1`. Without it, an ordinary `pytest` run writes
+`tests/__pycache__/*.pyc` inside the protected tree, and the very next manifest
+check reports an honest round as `TAMPERED`. A `.pyc` file that TheUstad did not
+cause is still reported, so planted bytecode remains detectable.
+
+Two things defeat that variable before Python reads it. Isolated Python
+ignores it outright: `-I` implies `-E`, which drops every `PYTHON*` setting.
+A launcher can also remove it — `env -i` clears the environment and
+`env -u PYTHONDONTWRITEBYTECODE` drops exactly this variable — so those are
+refused too unless the command is made safe another way. A custom verifier such as `python -I -m pytest -q` is
+therefore refused, because it would fail an honest run. Add `-B`, or
+`-X pycache_prefix=DIR` — both are command-line options that isolated mode still
+honours. The default verifier already passes `-B`.
+
+A cache prefix must resolve **outside** the repository. It is resolved against
+the verifier's working directory, so a repository-relative value such as
+`-X pycache_prefix=tests/cache` writes its parallel bytecode tree straight into
+the protected paths it was meant to avoid; TheUstad refuses those too, naming
+the path the prefix resolves to.
+
+## Test census
+
+A verifier's exit code can be produced without running anything the acceptance
+suite asserts, from source files an agent is meant to edit and which freezing
+therefore cannot see:
+
+- a module-level `pytest.skip` in code the protected tests import removes them
+  from collection while other tests keep the run green; and
+- `os._exit(0)` on import ends the process at status 0 before a single
+  assertion runs.
+
+Both reach `FINAL VERIFIED` on exit code alone. For a pytest verifier TheUstad
+therefore records which tests the suite collected *before* the agent starts,
+and requires the verification run to account for every one of them in a report
+written outside the repository:
+
+```text
+CENSUS 2 acceptance tests
+CENSUS CENSUS_SHRINK 1 test(s) recorded at baseline did not run
+FINAL FALSIFIED
+```
+
+Only the tests that actually *ran* at baseline are owed back. One the
+repository skips was never assurance, and one that **errored** never ran its
+body at all -- pytest abandons the run on a collection failure and writes a
+single synthetic entry named after the module, whose id disappears the moment
+the import is repaired. Requiring that back would convict an agent for fixing
+exactly what it was asked to fix. When nothing in the baseline ran, there is
+nothing to supervise, and the census says so rather than arming on an empty
+promise.
+
+Reasons are `CENSUS_SHRINK` (a recorded test did not run, including pytest's
+"no tests collected"), `CENSUS_SKIP` (a test that ran at baseline is skipped
+now — the assertions were removed whatever the exit code says),
+`REPORT_MISSING` (no usable report, so nothing shows the tests ran) and
+`REPORT_MISMATCH` (the verifier reported success while its own report holds
+failures). Tests the agent adds are reported but never counted toward
+acceptance, and a test already skipped at baseline is the repository's own
+choice and is left alone.
+
+The baseline is one verifier run recorded before the agent starts, and the
+acceptance run gains only a reporting flag — it cannot change which tests are
+selected or what they assert, so the verifier stays the oracle. pytest is
+recognised behind a launcher too (`uv run pytest`, `poetry run pytest`,
+`env pytest`) and however the module is spelled (`-m pytest`, `-mpytest`),
+because leaving those unsupervised would be silent. The reporting flag goes
+before any `--`, since everything after that separator is a test path. Each
+round's report is removed before the run that must write it: the path is
+derived from the round number and a round number repeats, so a verifier that
+dies before pytest writes anything would otherwise inherit the previous
+round's passing report. Anything
+that is not pytest, or does not answer the report flag, is left alone rather
+than blocked. `--no-census` disables the census.
+
+### When the census cannot arm
+
+TheUstad reads a verifier that names an interpreter or a pytest executable,
+optionally behind `env`, whose grammar it knows in full. It cannot locate the
+command inside another launcher's options: `uv run --help` alone documents 77
+of them, several of which take a value that can look exactly like the command
+(`uv run --with pytest -- pytest -q`). Carrying an option table per launcher
+per version is not a guarantee TheUstad can keep.
+
+So for those, the census stands down -- and says so, at `SessionStart` and in
+the wrapper's output, because standing down otherwise looks identical to
+having nothing to report:
+
+```text
+THEUSTAD_WARNING the test census did not arm, so a green exit code is the only
+evidence this run has that the acceptance tests ran. Reason: ...
+```
+
+Spell the verifier out to get it supervised, or pass `--no-census` to say the
+absence is intended. The bytecode guard makes the opposite trade for the same
+ambiguity: where several tokens could be the interpreter, **all** of them must
+be safe, so an unreadable launcher cannot hide an isolated Python behind an
+option's operand.
+
+### What the census does not defend against
+
+The report is written by the verifier, and the verifier executes the source
+the agent edits. That source therefore runs with TheUstad's own permissions
+and can read the report path out of its own `sys.argv`, so it can write
+whatever report it likes and exit 0. Confirmed by doing it: a module that
+forges a passing report and calls `os._exit(0)` reaches `VERIFIED`.
+
+No amount of path hardening closes this. An unguessable filename is still in
+argv; a report the parent pre-fills is still overwritten by pytest. The same
+reasoning covers the rest of the state directory, which that process can also
+reach -- the manifest, the policy, the block count and the audit log are all
+writable by it.
+
+So the census is a check on what a verifier *did*, not a defence against a
+verifier written to lie about it. It closes the cases where the tests stop
+running as a side effect of an edit -- which is what an agent taking a
+shortcut actually produces -- and it raises the cost of the rest from "return
+0" to "forge the evidence". Code written specifically against TheUstad's own
+mechanism is outside what this can decide, and needs the verifier to run
+where it cannot reach TheUstad's state: a separate user, a container, or a
+read-only mount. TheUstad does not arrange that for you today.
+
+The census applies to both interfaces. In hook mode the two halves land in
+different processes, so `SessionStart` takes the baseline and saves it beside
+the manifest, and `Stop` compares against it before deciding the verdict --
+without that, the same two attacks reach `VERIFIED` through `Stop`, which
+reads the verifier's exit code. The baseline is taken at `SessionStart` rather
+than at `enroll` because the repository moves on between enrolling and a
+session, and a stale baseline would report honestly retired tests as missing.
+That is one verifier run per session start, inside the same hook timeout the
+`Stop` hook already gets; `theustad enroll --no-census` turns it off, and
+`theustad status` reports `CENSUS true|false`.
+
+If the configured patterns match nothing, TheUstad prints `PROTECTED 0 paths`
+with a warning and records it in the audit chain: a run with an empty baseline
+can never reach `TAMPERED`, so its `VERIFIED` result carries no anti-tampering
+guarantee.
 
 On WSL, make sure every custom-verifier executable is WSL-native before
 starting TheUstad. For example, check both `command -v node` and

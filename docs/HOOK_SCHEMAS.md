@@ -1,6 +1,7 @@
 # Hook schema evidence
 
-Last checked against the official Claude Code hooks reference on 2026-08-04.
+Last checked against the official Claude Code hooks reference on 2026-08-04;
+the hook `timeout` section below was checked on 2026-09-18.
 These are documentation-derived fixtures, not a claim that a local Claude Code
 binary has been exercised.
 
@@ -20,6 +21,23 @@ Other common or optional fields are retained in the raw payload but do not
 control enforcement. The baseline is created only if the session has no
 existing binding. Every repeated `SessionStart`, including compaction, reuses
 the original baseline.
+
+The baseline covers both the protected-input manifest and, for a pytest
+verifier, the test census, which is saved beside the manifest for `Stop` to
+read. Re-baselining on re-entry would be an attack in itself: plant a
+module-level skip, trigger a compaction, and the new baseline is the already
+shrunken one.
+
+That de-duplication is by `vendor + session_id`, which covers the
+continuations that keep their id. A `resume`, `clear`, `compact` or `fork`
+arriving with an id TheUstad has not bound is refused rather than baselined:
+it would otherwise freeze the protected inputs as they stand after editing
+and reset the retry counter, which SPEC 4.8a forbids. No new baseline is
+written, `Stop` finds no binding and blocks through the path that already
+exists for it, and the message says to restart Claude Code. Continuing such a
+session properly would mean carrying its manifest, snapshots and counters
+into the new session's state, which the manifest's recorded state directory
+and snapshot paths do not allow to be copied; that is not attempted here.
 
 Fixture: `tests/fixtures/hooks/claude/session_start.json`.
 
@@ -41,6 +59,22 @@ arrays return `BACKGROUND_ACTIVE` so the verifier does not race in-flight or
 scheduled edits. These arrays are documented for Claude Code v2.1.145 or later.
 
 Fixture: `tests/fixtures/hooks/claude/stop_claim.json`.
+
+## Hook `timeout` (emitted, not parsed)
+
+This is the one field TheUstad *writes* into the host configuration rather than
+reading from a payload.
+
+- `timeout`: seconds, inside the command-hook object.
+- Documented default for a `command` hook: 600.
+- On reaching it the host cancels the hook, **discards its output**, and on
+  most events renders no decision.
+
+That last point is why the field matters: an omitted timeout leaves the host
+default in force, and a verifier permitted to outlive the hook turns a blocking
+verdict into a silent pass. `theustad.py enroll` therefore always emits an
+explicit value and refuses any policy whose verifier deadline is not at least
+`MIN_HOOK_MARGIN` seconds below it. See the hook-timeout section of the README.
 
 ## Fail-closed parsing
 
