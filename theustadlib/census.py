@@ -22,7 +22,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePath
 from typing import Sequence
 
-from .verifier import ignores_bytecode_environment, interpreter_index
+from .verifier import (
+    ignores_bytecode_environment,
+    interpreter_index,
+    scan_interpreter_flags,
+)
 
 
 REPORT_MISSING = "REPORT_MISSING"
@@ -65,20 +69,23 @@ def is_pytest_verifier(argv: Sequence[str]) -> bool:
     ``uv run pytest``, ``poetry run pytest`` or ``env pytest`` the launcher
     holds that slot, and reading it alone would leave those verifiers
     unsupervised while the census reported nothing at all.
+
+    When an interpreter is present its own flag scanner answers the question,
+    rather than a second reading of the same argv kept here.  ``-m pytest``,
+    ``-mpytest`` and ``-Bmpytest`` are one spelling to that scanner and were
+    three separate ways through to a hand-written one.
     """
-    for index, token in enumerate(argv):
-        if _is_pytest_token(token):
-            return True
-        if token == "-m" and index + 1 < len(argv):
-            return argv[index + 1].split(".")[0] == "pytest"
-        # CPython accepts the module attached to the flag as well, and a
-        # verifier spelled that way ran unsupervised while the census
-        # reported nothing at all.
-        if token.startswith("-m") and len(token) > 2:
-            return token[2:].split(".")[0] == "pytest"
-        if token in ("-c", "--"):
-            break
-    return False
+    index = interpreter_index(argv)
+    if index is not None:
+        module = scan_interpreter_flags(argv, index + 1).module
+        return bool(module) and module.split(".")[0] == "pytest"
+
+    # No interpreter names the module, so the command is a pytest executable,
+    # possibly behind a launcher.  A `--` here ends the launcher's own options
+    # rather than pytest's arguments, so the scan continues past it.  A false
+    # positive is self-correcting: if the command is not pytest it writes no
+    # report, and the census stands down at baseline.
+    return any(_is_pytest_token(token) for token in argv)
 
 
 def canonical_id(module_path: str, name: str) -> str:
@@ -116,19 +123,35 @@ def probe_argv(argv: Sequence[str], report: str | Path) -> list[str]:
     return with_options(probe, f"--junit-xml={report}", "-p", "no:cacheprovider")
 
 
-def with_options(argv: Sequence[str], *options: str) -> list[str]:
-    """Add pytest options to a verifier, before any ``--`` separator.
+def _pytest_index(argv: Sequence[str]) -> int:
+    """Where pytest's own command begins, past any launcher in front of it."""
+    index = interpreter_index(argv)
+    if index is not None:
+        return index
+    for position, token in enumerate(argv):
+        if _is_pytest_token(token):
+            return position
+    return 0
 
-    Everything after ``--`` is a test path rather than an option, so an
-    option appended there makes pytest look for a file by that name, exit 4
-    and collect nothing -- which stands the census down on a verifier that
-    was perfectly valid.  Every option the census adds goes through here, so
-    there is one rule rather than one per caller to keep in agreement.
+
+def with_options(argv: Sequence[str], *options: str) -> list[str]:
+    """Add pytest options to a verifier, before pytest's ``--`` separator.
+
+    Everything after pytest's ``--`` is a test path rather than an option, so
+    an option appended there makes pytest look for a file by that name, exit 4
+    and collect nothing -- which stands the census down on a verifier that was
+    perfectly valid.  Every option the census adds goes through here, so there
+    is one rule rather than one per caller to keep in agreement.
+
+    Not every ``--`` is pytest's.  ``env -- python -m pytest`` has one that
+    ends the *launcher's* options, and inserting before it would hand the flag
+    to env instead, so only a separator after pytest's command counts.
     """
     argv = list(argv)
-    if "--" in argv:
-        index = argv.index("--")
-        return [*argv[:index], *options, *argv[index:]]
+    start = _pytest_index(argv)
+    for index in range(start, len(argv)):
+        if argv[index] == "--":
+            return [*argv[:index], *options, *argv[index:]]
     return [*argv, *options]
 
 

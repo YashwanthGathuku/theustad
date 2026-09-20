@@ -261,7 +261,10 @@ def test_a_verified_round_does_not_leave_its_report_for_the_next_one(tmp_path):
     ("label", "verifier"),
     [
         ("attached -m", "{python} -B -mpytest -q"),
+        ("clustered -m", "{python} -Bmpytest -q"),
         ("path separator", "{python} -B -m pytest -q -- tests"),
+        ("launcher separator", "env -- {python} -B -m pytest -q"),
+        ("both separators", "env -- {python} -B -m pytest -q -- tests"),
     ],
 )
 def test_pytest_is_supervised_however_the_verifier_spells_it(

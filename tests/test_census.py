@@ -310,21 +310,58 @@ def test_every_added_option_goes_before_a_path_separator(build):
 
     separator = built.index("--")
     assert built[separator:] == ["--", "tests"], "an added option landed after --"
-    assert f"--junit-xml=/tmp/report.xml" in built[:separator]
+    assert "--junit-xml=/tmp/report.xml" in built[:separator]
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda argv: census.report_argv(argv, "/tmp/report.xml"),
+        lambda argv: census.probe_argv(argv, "/tmp/report.xml"),
+    ],
+    ids=["report", "probe"],
+)
+def test_a_launcher_separator_is_not_mistaken_for_pytest_s(build):
+    """`env -- python -m pytest` has a `--` that ends *env's* options.
+
+    Inserting before it hands the reporting flag to env instead of pytest,
+    which fails the acceptance run rather than reporting on it.
+    """
+    argv = ["env", "--", sys.executable, "-m", "pytest", "-q"]
+
+    built = build(argv)
+
+    assert built[:2] == ["env", "--"], "an option was handed to the launcher"
+    assert built[-1] != "--"
+    assert "--junit-xml=/tmp/report.xml" in built[2:]
 
 
 @pytest.mark.parametrize(
     ("argv", "expected"),
     [
-        ([sys.executable, "-mpytest", "-q"], True),
+        # Every spelling CPython accepts for the module, including inside a
+        # short-option cluster: each of these was a separate way through when
+        # the census read argv itself instead of asking the flag scanner.
         ([sys.executable, "-m", "pytest", "-q"], True),
+        ([sys.executable, "-mpytest", "-q"], True),
+        ([sys.executable, "-Bmpytest", "-q"], True),
+        ([sys.executable, "-Impytest", "-q"], True),
         ([sys.executable, "-mpytest.__main__"], True),
+        # A launcher's own `--` ends its options; pytest is still past it.
+        (["env", "--", sys.executable, "-m", "pytest", "-q"], True),
+        (["env", "--", "pytest", "-q"], True),
+        (["uv", "run", "pytest", "-q"], True),
+        # Not pytest, however it is spelled.
         ([sys.executable, "-mcoverage", "run"], False),
+        ([sys.executable, "-Bmcoverage", "run"], False),
         ([sys.executable, "-c", "import pytest"], False),
+        # The interpreter names the module, so a later token does not.
+        ([sys.executable, "-m", "foo", "--", "pytest"], False),
     ],
 )
-def test_every_module_spelling_cpython_accepts_is_recognised(argv, expected):
-    """CPython takes the module attached to the flag as well as apart from it."""
+def test_every_spelling_that_runs_pytest_is_recognised(argv, expected):
+    """Standing down looks exactly like having nothing to report, so a missed
+    spelling is silent rather than loud. That is what makes these worth a list."""
     assert census.is_pytest_verifier(argv) is expected
 
 

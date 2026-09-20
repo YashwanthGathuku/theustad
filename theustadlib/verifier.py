@@ -19,6 +19,8 @@ _SHELL_OPERATOR_CHARS = frozenset("|&;<>")
 # Options whose short-flag cluster consumes a value, ending the cluster.
 _VALUE_OPTIONS = frozenset("XWQ")
 _PYCACHE_PREFIX = "pycache_prefix="
+# -m takes a value like the options above, and ends the interpreter flags.
+_MODULE_OPTION = "m"
 BYTECODE_VARIABLE = "PYTHONDONTWRITEBYTECODE"
 # ``env`` treats a bare ``-`` as ``-i``; its --help documents both.
 _ENV_IGNORE = frozenset({"-i", "--ignore-environment", "-"})
@@ -48,6 +50,7 @@ class InterpreterFlags:
     ignores_environment: bool
     suppresses_writes: bool
     pycache_prefix: str | None
+    module: str | None = None
 
 
 def interpreter_index(argv: Sequence[str]) -> int | None:
@@ -153,28 +156,40 @@ def scan_interpreter_flags(
     ignores_environment = False
     suppresses_writes = False
     pycache_prefix: str | None = None
+    module: str | None = None
 
     index = start
     while index < len(argv):
         token = argv[index]
-        if token in ("-m", "-c", "--") or not token.startswith("-"):
+        if token in ("-c", "--") or not token.startswith("-"):
+            break
+        if token == "-m":
+            if index + 1 < len(argv):
+                module = argv[index + 1]
             break
         letters = token[1:]
         if letters.startswith("-"):
             index += 2 if token in _VALUE_LONG_OPTIONS else 1
             continue
         consumed_value = False
+        stop = False
         for position, letter in enumerate(letters):
             if letter in ("I", "E"):
                 ignores_environment = True
             elif letter == "B":
                 suppresses_writes = True
-            elif letter in _VALUE_OPTIONS:
+            elif letter in _VALUE_OPTIONS or letter == _MODULE_OPTION:
                 value = letters[position + 1 :]
                 if not value and index + 1 < len(argv):
                     value = argv[index + 1]
                     consumed_value = True
-                if letter == "X" and value.startswith(_PYCACHE_PREFIX):
+                if letter == _MODULE_OPTION:
+                    # -m takes the rest of the cluster as the module name, so
+                    # -Bmpytest is python -B -m pytest.  Everything after it
+                    # belongs to the module, not to the interpreter.
+                    module = value or None
+                    stop = True
+                elif letter == "X" and value.startswith(_PYCACHE_PREFIX):
                     # CPython reads an empty value as no prefix at all
                     # (sys.pycache_prefix is None), so bytecode still lands
                     # beside the source.  Only a real path redirects it.
@@ -182,12 +197,15 @@ def scan_interpreter_flags(
                     if prefix:
                         pycache_prefix = prefix
                 break
+        if stop:
+            break
         index += 2 if consumed_value else 1
 
     return InterpreterFlags(
         ignores_environment=ignores_environment,
         suppresses_writes=suppresses_writes,
         pycache_prefix=pycache_prefix,
+        module=module,
     )
 
 
