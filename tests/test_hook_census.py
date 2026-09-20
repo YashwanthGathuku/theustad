@@ -35,8 +35,11 @@ def _repo(tmp_path: Path) -> Path:
     (repo / "app" / "__init__.py").write_text("", encoding="utf-8")
     (repo / "tests" / "__init__.py").write_text("", encoding="utf-8")
     (repo / "app" / "calc.py").write_text(HONEST, encoding="utf-8")
+    # Named so that a `-k python` verifier still selects it: that spelling
+    # makes a pytest argument look like an interpreter to the flag scanner.
     (repo / "tests" / "test_calc.py").write_text(
-        "from app.calc import add\n\n\ndef test_add():\n    assert add(2, 3) == 5\n",
+        "from app.calc import add\n\n\ndef test_python_add():\n"
+        "    assert add(2, 3) == 5\n",
         encoding="utf-8",
     )
     # A second module that keeps passing, so the suite stays green when the
@@ -265,6 +268,7 @@ def test_a_verified_round_does_not_leave_its_report_for_the_next_one(tmp_path):
         ("path separator", "{python} -B -m pytest -q -- tests"),
         ("launcher separator", "env -- {python} -B -m pytest -q"),
         ("both separators", "env -- {python} -B -m pytest -q -- tests"),
+        ("path named like python", "{python} -B -m pytest -q -k python"),
     ],
 )
 def test_pytest_is_supervised_however_the_verifier_spells_it(

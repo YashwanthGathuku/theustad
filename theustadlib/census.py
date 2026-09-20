@@ -74,17 +74,24 @@ def is_pytest_verifier(argv: Sequence[str]) -> bool:
     rather than a second reading of the same argv kept here.  ``-m pytest``,
     ``-mpytest`` and ``-Bmpytest`` are one spelling to that scanner and were
     three separate ways through to a hand-written one.
+
+    An interpreter that names no module is not treated as the answer, because
+    it may not be an interpreter at all: ``pytest -k python`` and
+    ``pytest -- tests/python`` name an expression and a test path, and reading
+    either as the command would disable the census on a valid verifier.  A
+    real interpreter with no module runs a script rather than pytest, so
+    falling through costs nothing there.
     """
     index = interpreter_index(argv)
     if index is not None:
         module = scan_interpreter_flags(argv, index + 1).module
-        return bool(module) and module.split(".")[0] == "pytest"
+        if module:
+            return module.split(".")[0] == "pytest"
 
-    # No interpreter names the module, so the command is a pytest executable,
-    # possibly behind a launcher.  A `--` here ends the launcher's own options
-    # rather than pytest's arguments, so the scan continues past it.  A false
-    # positive is self-correcting: if the command is not pytest it writes no
-    # report, and the census stands down at baseline.
+    # A pytest executable, possibly behind a launcher whose own `--` ends its
+    # options rather than pytest's arguments.  A false positive here is
+    # self-correcting: a command that is not pytest writes no report, and the
+    # census stands down at baseline rather than blocking anything.
     return any(_is_pytest_token(token) for token in argv)
 
 
@@ -124,9 +131,15 @@ def probe_argv(argv: Sequence[str], report: str | Path) -> list[str]:
 
 
 def _pytest_index(argv: Sequence[str]) -> int:
-    """Where pytest's own command begins, past any launcher in front of it."""
+    """Where pytest's own command begins, past any launcher in front of it.
+
+    An interpreter naming no module is disregarded for the same reason as in
+    ``is_pytest_verifier``: in ``pytest -- tests/python`` the match is the test
+    path itself, and starting the separator search after it would append the
+    reporting flag past pytest's ``--``, where it reads as another path.
+    """
     index = interpreter_index(argv)
-    if index is not None:
+    if index is not None and scan_interpreter_flags(argv, index + 1).module:
         return index
     for position, token in enumerate(argv):
         if _is_pytest_token(token):

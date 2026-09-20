@@ -357,6 +357,14 @@ def test_a_launcher_separator_is_not_mistaken_for_pytest_s(build):
         ([sys.executable, "-c", "import pytest"], False),
         # The interpreter names the module, so a later token does not.
         ([sys.executable, "-m", "foo", "--", "pytest"], False),
+        # A pytest argument that happens to be named like an interpreter is
+        # not one: these are a test path and a -k expression.
+        (["pytest", "-q", "--", "tests/python"], True),
+        (["pytest", "-k", "python"], True),
+        (["pytest", "-q", "tests/python/test_a.py"], True),
+        # A real interpreter running a script is still not pytest.
+        ([sys.executable, "script.py"], False),
+        ([sys.executable, "-B", "tests/python/run.py"], False),
     ],
 )
 def test_every_spelling_that_runs_pytest_is_recognised(argv, expected):
@@ -385,3 +393,26 @@ def test_clearing_a_report_removes_a_symlink_rather_than_its_target(tmp_path):
 
     assert not link.exists()
     assert target.exists()
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda argv: census.report_argv(argv, "/tmp/report.xml"),
+        lambda argv: census.probe_argv(argv, "/tmp/report.xml"),
+    ],
+    ids=["report", "probe"],
+)
+def test_a_test_path_named_like_an_interpreter_does_not_move_the_separator(build):
+    """`pytest -- tests/python` matches the interpreter search on its own path.
+
+    Starting the separator search after that match appends the reporting flag
+    past pytest's `--`, where pytest reads it as another test path.
+    """
+    argv = ["pytest", "-q", "--", "tests/python"]
+
+    built = build(argv)
+
+    separator = built.index("--")
+    assert built[separator:] == ["--", "tests/python"]
+    assert "--junit-xml=/tmp/report.xml" in built[:separator]
