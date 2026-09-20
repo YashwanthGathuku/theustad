@@ -365,6 +365,16 @@ def test_a_launcher_separator_is_not_mistaken_for_pytest_s(build):
         # A real interpreter running a script is still not pytest.
         ([sys.executable, "script.py"], False),
         ([sys.executable, "-B", "tests/python/run.py"], False),
+        # pytest installs two console scripts; py.test is the forgotten one.
+        (["py.test", "-q"], True),
+        (["/usr/bin/py.test", "-q"], True),
+        (["py.test.exe", "-q"], True),
+        (["py.test-3", "-q"], True),
+        (["env", "--", "py.test", "-q"], True),
+        (["uv", "run", "py.test", "-q"], True),
+        # py alone is the Windows launcher, not pytest.
+        (["py", "-m", "foo"], False),
+        (["mypy", "-q"], False),
     ],
 )
 def test_every_spelling_that_runs_pytest_is_recognised(argv, expected):

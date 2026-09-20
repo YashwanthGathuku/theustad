@@ -232,3 +232,31 @@ def test_a_direct_pytest_really_writes_bytecode_when_the_variable_is_gone(tmp_pa
     assert (protected / "__pycache__").exists(), (
         "expected a direct pytest to write bytecode once the variable is gone"
     )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "env -u python {python} -I -m pytest -q",
+        "env --unset python {python} -I -m pytest -q",
+        "env -upython {python} -I -m pytest -q",
+    ],
+)
+def test_an_operand_named_like_python_does_not_hide_the_interpreter(command):
+    """`env -u python` unsets a variable that happens to be named python.
+
+    Reading that operand as the interpreter stops the scan before the real
+    one, so every flag it carries -- here an isolated -I with no -B -- goes
+    unread and the verifier is accepted.
+    """
+    python = Path(sys.executable).as_posix()
+
+    with pytest.raises(ValueError, match="isolated Python"):
+        parse_command(command.format(python=python))
+
+
+def test_the_same_operand_still_allows_a_safe_interpreter():
+    """The operand is skipped, not the checking: -B still makes it safe."""
+    python = Path(sys.executable).as_posix()
+
+    assert parse_command(f"env -u python {python} -I -B -m pytest -q")

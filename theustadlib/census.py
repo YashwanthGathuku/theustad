@@ -55,11 +55,18 @@ class CensusResult:
         return self.reason is not None
 
 
+# pytest installs two console scripts, not one, and a distribution may add a
+# version-suffixed spelling of either.
+_PYTEST_SCRIPTS = ("pytest", "py.test")
+
+
 def _is_pytest_token(token: str) -> bool:
     name = PurePath(token).name.lower()
     if name.endswith(".exe"):
         name = name[: -len(".exe")]
-    return name == "pytest" or name.startswith("pytest-")
+    return any(
+        name == script or name.startswith(f"{script}-") for script in _PYTEST_SCRIPTS
+    )
 
 
 def is_pytest_verifier(argv: Sequence[str]) -> bool:

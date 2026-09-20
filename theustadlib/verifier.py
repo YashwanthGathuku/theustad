@@ -53,22 +53,9 @@ class InterpreterFlags:
     module: str | None = None
 
 
-def interpreter_index(argv: Sequence[str]) -> int | None:
-    """Find the Python interpreter, looking past a launcher that wraps it.
-
-    ``env python -I ...``, ``uv run python -I ...`` and ``poetry run python
-    -I ...`` all hide the interpreter behind another argv[0]; reading only
-    argv[0] would skip the check entirely for every one of them.
-    """
-    for index, token in enumerate(argv):
-        if _is_python_interpreter(token):
-            return index
-    return None
-
-
 def _launcher_actions(
     argv: Sequence[str], before: int
-) -> "Iterator[tuple[str, str]]":
+) -> "Iterator[tuple[str, str, int | None]]":
     """Normalise what an ``env``-style launcher does before Python starts.
 
     ``env`` accepts each option in several spellings -- clustered
@@ -76,41 +63,69 @@ def _launcher_actions(
     joined (``--unset=NAME``) -- and takes ``NAME=VALUE`` assignments as
     positional arguments.  Reading one spelling of each leaves the rest as
     ways through, so every caller below reads the same normalised view.
+
+    Each action also reports the index it consumed as a value, if any, so a
+    caller can tell an option's operand from the command that follows it.
     """
     index = 0
     while index < before:
         token = argv[index]
         if token in _ENV_IGNORE:
-            yield ("ignore", "")
+            yield ("ignore", "", None)
         elif token == _SPLIT_LONG or token.startswith(f"{_SPLIT_LONG}="):
-            yield ("split", "")
+            yield ("split", "", None)
         elif token.startswith(f"{_UNSET_LONG}="):
-            yield ("unset", token[len(_UNSET_LONG) + 1 :])
+            yield ("unset", token[len(_UNSET_LONG) + 1 :], None)
         elif token == _UNSET_LONG:
             index += 1
-            yield ("unset", argv[index] if index < before else "")
+            yield ("unset", argv[index] if index < before else "", index)
         elif token.startswith("--") or not token.startswith("-"):
             name, separator, _ = token.partition("=")
             if separator:
-                yield ("assign", name)
+                yield ("assign", name, None)
         else:
             for position, letter in enumerate(token[1:]):
                 if letter == "i":
-                    yield ("ignore", "")
+                    yield ("ignore", "", None)
                     continue
                 if letter == "S":
-                    yield ("split", "")
+                    yield ("split", "", None)
                     break
                 if letter == "u":
                     # -u takes a value: the rest of the cluster, or the
                     # next token, and either way the cluster ends here.
                     value = token[position + 2 :]
+                    consumed = None
                     if not value and index + 1 < before:
                         index += 1
                         value = argv[index]
-                    yield ("unset", value)
+                        consumed = index
+                    yield ("unset", value, consumed)
                     break
         index += 1
+
+
+def interpreter_index(argv: Sequence[str]) -> int | None:
+    """Find the Python interpreter, looking past a launcher that wraps it.
+
+    ``env python -I ...``, ``uv run python -I ...`` and ``poetry run python
+    -I ...`` all hide the interpreter behind another argv[0]; reading only
+    argv[0] would skip the check entirely for every one of them.
+
+    A launcher option's operand is not the command it launches, even when it
+    is spelled like one: ``env -u python python -I -m pytest`` unsets a
+    variable named ``python``, and reading that operand as the interpreter
+    hides the real one and every flag it carries.
+    """
+    operands = {
+        consumed
+        for _, _, consumed in _launcher_actions(argv, len(argv))
+        if consumed is not None
+    }
+    for index, token in enumerate(argv):
+        if index not in operands and _is_python_interpreter(token):
+            return index
+    return None
 
 
 def overrides_bytecode_environment(argv: Sequence[str], before: int) -> bool:
@@ -125,7 +140,7 @@ def overrides_bytecode_environment(argv: Sequence[str], before: int) -> bool:
     reproducing its integer parsing, so any assignment to the variable is
     refused -- TheUstad already sets it, and the message says to drop it.
     """
-    for kind, value in _launcher_actions(argv, before):
+    for kind, value, _ in _launcher_actions(argv, before):
         if kind == "ignore":
             return True
         if kind in ("unset", "assign") and value == BYTECODE_VARIABLE:
@@ -142,7 +157,7 @@ def hides_the_command(argv: Sequence[str]) -> bool:
     """
     interpreter = interpreter_index(argv)
     limit = len(argv) if interpreter is None else interpreter
-    return any(kind == "split" for kind, _ in _launcher_actions(argv, limit))
+    return any(kind == "split" for kind, _, _ in _launcher_actions(argv, limit))
 
 
 def scan_interpreter_flags(
