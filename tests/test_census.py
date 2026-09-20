@@ -288,14 +288,29 @@ def test_pytest_behind_a_launcher_is_still_supervised(argv):
     assert census.is_pytest_verifier(argv) is True
 
 
-def test_the_report_flag_goes_before_a_path_separator():
-    """After --, pytest reads the flag as a test path, exits 4 and writes nothing."""
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda argv: census.report_argv(argv, "/tmp/report.xml"),
+        lambda argv: census.probe_argv(argv, "/tmp/report.xml"),
+    ],
+    ids=["report", "probe"],
+)
+def test_every_added_option_goes_before_a_path_separator(build):
+    """After --, pytest reads an option as a test path, exits 4 and collects nothing.
+
+    Asserted on the shape rather than on a run, because how badly pytest
+    takes it depends on the version: 9.1 tolerated an option after the
+    separator and 8.4 exits 4, so a behavioural test passes or fails with
+    whatever happens to be installed.
+    """
     argv = [sys.executable, "-m", "pytest", "-q", "--", "tests"]
 
-    built = census.report_argv(argv, "/tmp/report.xml")
+    built = build(argv)
 
-    assert built[built.index("--") - 1] == "--junit-xml=/tmp/report.xml"
-    assert built[-1] == "tests"
+    separator = built.index("--")
+    assert built[separator:] == ["--", "tests"], "an added option landed after --"
+    assert f"--junit-xml=/tmp/report.xml" in built[:separator]
 
 
 @pytest.mark.parametrize(

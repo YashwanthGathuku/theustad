@@ -113,7 +113,23 @@ def probe_argv(argv: Sequence[str], report: str | Path) -> list[str]:
     # learns that this verifier answers the flag at all, so that a later
     # missing report means something happened rather than that the verifier
     # never wrote one.
-    return [*report_argv(probe, report), "-p", "no:cacheprovider"]
+    return with_options(probe, f"--junit-xml={report}", "-p", "no:cacheprovider")
+
+
+def with_options(argv: Sequence[str], *options: str) -> list[str]:
+    """Add pytest options to a verifier, before any ``--`` separator.
+
+    Everything after ``--`` is a test path rather than an option, so an
+    option appended there makes pytest look for a file by that name, exit 4
+    and collect nothing -- which stands the census down on a verifier that
+    was perfectly valid.  Every option the census adds goes through here, so
+    there is one rule rather than one per caller to keep in agreement.
+    """
+    argv = list(argv)
+    if "--" in argv:
+        index = argv.index("--")
+        return [*argv[:index], *options, *argv[index:]]
+    return [*argv, *options]
 
 
 def report_argv(argv: Sequence[str], report: str | Path) -> list[str]:
@@ -121,18 +137,8 @@ def report_argv(argv: Sequence[str], report: str | Path) -> list[str]:
 
     Only a reporting flag is added. It cannot change which tests are
     selected or what they assert, so the verifier remains the oracle.
-
-    It goes before any ``--``, because everything after that separator is a
-    test path rather than an option: appended there, pytest looks for a file
-    named after the flag, exits 4 and writes no report, which would stand the
-    census down on a verifier that was perfectly valid.
     """
-    flag = f"--junit-xml={report}"
-    argv = list(argv)
-    if "--" in argv:
-        index = argv.index("--")
-        return [*argv[:index], flag, *argv[index:]]
-    return [*argv, flag]
+    return with_options(argv, f"--junit-xml={report}")
 
 
 def clear_report(path: str | Path) -> None:
