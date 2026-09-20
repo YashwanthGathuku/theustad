@@ -370,10 +370,15 @@ def test_a_relative_prefix_is_resolved_where_the_command_will_run(
             parse_command(command.format(python=python), repo=repo)
 
 
-def test_chained_chdirs_compose():
-    """env applies each -C in turn, so they stack."""
+def test_chained_chdirs_compose(tmp_path):
+    """env applies each -C in turn, so they stack.
+
+    Rooted at tmp_path rather than a written-out absolute path: resolve()
+    anchors a rootless path to the current drive on Windows, so "/repo"
+    comes back as "D:/repo" there and only there.
+    """
     from theustadlib.verifier import launcher_working_directory
 
     argv = ["env", "-C", "a", "-C", "b", "python", "-m", "pytest"]
 
-    assert launcher_working_directory(argv, "/repo") == Path("/repo/a/b")
+    assert launcher_working_directory(argv, tmp_path) == tmp_path / "a" / "b"
