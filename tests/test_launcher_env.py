@@ -289,3 +289,34 @@ def test_every_env_option_that_takes_a_value_is_known():
     from theustadlib import verifier
 
     assert set(verifier._VALUE_LAUNCHER_OPTIONS) == {"u", "C", "S"}
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "npm test -- -i",
+        "true -i",
+        "make test -i",
+        "cargo test -- --ignored",
+        "some-runner -u PYTHONDONTWRITEBYTECODE",
+    ],
+)
+def test_another_program_s_arguments_are_not_env_options(command):
+    """These are env's option semantics, so they are read only for env.
+
+    `npm test -- -i` passes -i to npm. Reading it as env's clear-the-
+    environment flag refuses a verifier that never touches Python at all.
+    """
+    assert parse_command(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["env -i {python} -m pytest -q", "env -u PYTHONDONTWRITEBYTECODE pytest -q"],
+)
+def test_env_itself_is_still_read_as_env(command):
+    """Narrowing where the rules apply must not narrow the rules."""
+    python = Path(sys.executable).as_posix()
+
+    with pytest.raises(ValueError):
+        parse_command(command.format(python=python))

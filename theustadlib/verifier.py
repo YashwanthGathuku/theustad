@@ -77,8 +77,16 @@ def _launcher_actions(
 
     Each action also reports the index it consumed as a value, if any, so a
     caller can tell an option's operand from the command that follows it.
+
+    These are ``env``'s option semantics, so they are read only where ``env``
+    is actually being invoked.  Applying them to another program's arguments
+    means calling ``npm test -- -i`` an environment-clearing launcher, which
+    refuses a verifier that never touches Python at all.
     """
-    index = 0
+    start = _env_index(argv, before)
+    if start is None:
+        return
+    index = start + 1
     while index < before:
         token = argv[index]
         name, separator, joined = token.partition("=")
@@ -113,6 +121,17 @@ def _launcher_actions(
                     yield (_VALUE_LAUNCHER_OPTIONS[letter][1], value, consumed)
                     break
         index += 1
+
+
+def _env_index(argv: Sequence[str], before: int) -> int | None:
+    """Find the ``env`` whose options the walk below is entitled to read."""
+    for index in range(min(before, len(argv))):
+        name = PurePath(argv[index]).name.lower()
+        if name.endswith(".exe"):
+            name = name[: -len(".exe")]
+        if name == "env":
+            return index
+    return None
 
 
 def launcher_operands(argv: Sequence[str]) -> frozenset[int]:

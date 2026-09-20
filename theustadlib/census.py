@@ -141,7 +141,14 @@ def probe_argv(argv: Sequence[str], report: str | Path) -> list[str]:
     # learns that this verifier answers the flag at all, so that a later
     # missing report means something happened rather than that the verifier
     # never wrote one.
-    return with_options(probe, f"--junit-xml={report}", "-p", "no:cacheprovider")
+    # --maxfail=0 is "no limit", and it comes after whatever the verifier
+    # passed, so it neutralises -x or --maxfail=1 however they were spelled.
+    # A fail-fast baseline stops at the first failure, and every test after
+    # that point is then missing from the census -- which is exactly where a
+    # later module-level skip would hide.
+    return with_options(
+        probe, f"--junit-xml={report}", "-p", "no:cacheprovider", "--maxfail=0"
+    )
 
 
 def _pytest_index(argv: Sequence[str]) -> int:

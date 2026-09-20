@@ -448,3 +448,21 @@ def test_a_directory_named_pytest_is_not_the_pytest_command(argv):
     assert built[: argv.index("--")] == argv[: argv.index("--")], (
         "an option was inserted into the launcher's own arguments"
     )
+
+
+def test_the_probe_neutralises_a_fail_fast_verifier():
+    """A fail-fast baseline stops at the first failure.
+
+    Every test after that point is then absent from the census, and a
+    module-level skip planted in one of them looks like a test that never
+    existed rather than one that stopped running.
+    """
+    argv = [sys.executable, "-B", "-m", "pytest", "-q", "-x"]
+
+    built = census.probe_argv(argv, "/tmp/report.xml")
+
+    assert built.index("--maxfail=0") > built.index("-x"), (
+        "the limit has to come after the verifier's own flag to override it"
+    )
+    # The acceptance run is left exactly as configured.
+    assert "--maxfail=0" not in census.report_argv(argv, "/tmp/report.xml")
