@@ -161,6 +161,7 @@ class Policy:
     max_blocks: int = 5
     require_claim: bool = False
     hook_timeout: float | None = None
+    census: bool = True
     version: int = POLICY_VERSION
 
     def __post_init__(self) -> None:
@@ -228,6 +229,7 @@ class Policy:
             verifier_argv = value["verifier_argv"]
             patterns = value.get("patterns", list(HOOK_PATTERNS))
             require_claim = value.get("require_claim", False)
+            supervise = value.get("census", True)
             if not isinstance(verifier_argv, list) or not all(
                 isinstance(item, str) for item in verifier_argv
             ):
@@ -238,6 +240,8 @@ class Policy:
                 raise ValueError("patterns must be a string array")
             if not isinstance(require_claim, bool):
                 raise ValueError("require_claim must be boolean")
+            if not isinstance(supervise, bool):
+                raise ValueError("census must be boolean")
             return cls(
                 repo=str(value["repo"]),
                 verifier_argv=tuple(verifier_argv),
@@ -245,6 +249,7 @@ class Policy:
                 timeout=float(value.get("timeout", 300.0)),
                 max_blocks=int(value.get("max_blocks", 5)),
                 require_claim=require_claim,
+                census=supervise,
                 hook_timeout=(
                     float(value["hook_timeout"])
                     if value.get("hook_timeout") is not None

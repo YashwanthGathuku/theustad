@@ -22,6 +22,12 @@ control enforcement. The baseline is created only if the session has no
 existing binding. Every repeated `SessionStart`, including compaction, reuses
 the original baseline.
 
+The baseline covers both the protected-input manifest and, for a pytest
+verifier, the test census, which is saved beside the manifest for `Stop` to
+read. Re-baselining on re-entry would be an attack in itself: plant a
+module-level skip, trigger a compaction, and the new baseline is the already
+shrunken one.
+
 Fixture: `tests/fixtures/hooks/claude/session_start.json`.
 
 ## Claude `Stop`

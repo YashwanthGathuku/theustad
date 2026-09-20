@@ -360,7 +360,13 @@ def test_reenrollment_cannot_change_policy_mid_session(tmp_path, monkeypatch):
     response = _stop(repo)
 
     assert response.exit_code == hookadapter.BLOCK
-    assert observed["argv"] == tuple(default_argv())
+    # The census adds a reporting flag and nothing else: the session policy
+    # still decides which tests run, whatever a later enrollment says.
+    baseline = tuple(default_argv())
+    assert observed["argv"][: len(baseline)] == baseline
+    extra = observed["argv"][len(baseline) :]
+    assert all(item.startswith("--junit-xml=") for item in extra), extra
+    assert all(not item.endswith(str(repo)) for item in extra)
 
 
 def test_stop_refuses_a_rewritten_session_audit(tmp_path, monkeypatch):

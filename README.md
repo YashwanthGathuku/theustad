@@ -281,6 +281,17 @@ recognised behind a launcher too (`uv run pytest`, `poetry run pytest`,
 that is not pytest, or does not answer the report flag, is left alone rather
 than blocked. `--no-census` disables the census.
 
+The census applies to both interfaces. In hook mode the two halves land in
+different processes, so `SessionStart` takes the baseline and saves it beside
+the manifest, and `Stop` compares against it before deciding the verdict --
+without that, the same two attacks reach `VERIFIED` through `Stop`, which
+reads the verifier's exit code. The baseline is taken at `SessionStart` rather
+than at `enroll` because the repository moves on between enrolling and a
+session, and a stale baseline would report honestly retired tests as missing.
+That is one verifier run per session start, inside the same hook timeout the
+`Stop` hook already gets; `theustad enroll --no-census` turns it off, and
+`theustad status` reports `CENSUS true|false`.
+
 If the configured patterns match nothing, TheUstad prints `PROTECTED 0 paths`
 with a warning and records it in the audit chain: a run with an empty baseline
 can never reach `TAMPERED`, so its `VERIFIED` result carries no anti-tampering

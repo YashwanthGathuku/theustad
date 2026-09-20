@@ -16,6 +16,7 @@ of them in a structured report written outside the repository.
 
 from __future__ import annotations
 
+import json
 import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass
 from pathlib import Path, PurePath
@@ -28,6 +29,14 @@ REPORT_MISSING = "REPORT_MISSING"
 REPORT_MISMATCH = "REPORT_MISMATCH"
 CENSUS_SHRINK = "CENSUS_SHRINK"
 CENSUS_SKIP = "CENSUS_SKIP"
+
+# Both interfaces say the same thing about the same finding, so they say
+# it from one place rather than two spellings to keep in agreement.
+CENSUS_EVIDENCE = (
+    "The verifier reported success, but its own report does not show the "
+    "acceptance tests running. A green exit code earned that way is not "
+    "evidence. Reason: {reason} -- {detail}"
+)
 NO_TESTS_EXIT_CODE = 5
 
 
@@ -209,3 +218,45 @@ def compare(
 
     added = tuple(sorted(set(report) - set(baseline)))
     return CensusResult(None, "every recorded acceptance test ran", added=added)
+
+
+BASELINE_NAME = "census-baseline.json"
+
+
+def save_baseline(state_dir: Path, baseline: dict[str, str]) -> Path:
+    """Record the baseline beside the manifest, for a later process to read.
+
+    The wrapper holds its baseline in memory because one process spans the
+    whole run.  Hook mode does not: SessionStart and Stop are separate
+    processes, so what SessionStart measured has to survive on disk or Stop
+    has nothing to compare against.
+    """
+    path = state_dir / BASELINE_NAME
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(baseline, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    temporary.replace(path)
+    return path
+
+
+def load_baseline(state_dir: Path) -> dict[str, str] | None:
+    """Read a saved baseline, or ``None`` when the census did not arm.
+
+    A baseline that cannot be read is treated as absent rather than as an
+    empty census: an empty mapping would make every test look accounted for.
+    """
+    path = state_dir / BASELINE_NAME
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict) or not value:
+        return None
+    if not all(
+        isinstance(key, str) and isinstance(item, str) for key, item in value.items()
+    ):
+        return None
+    return value

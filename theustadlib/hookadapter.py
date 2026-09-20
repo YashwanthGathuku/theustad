@@ -14,7 +14,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Sequence
 
-from . import enrollment
+from . import census, enrollment
+from .census import CENSUS_EVIDENCE
 from .chain import AuditChain
 from .claims import Claim, find_claims
 from .freezer import Tampering, check, freeze, restore
@@ -280,6 +281,7 @@ def handle_session_start(event: HookEvent, vendor: str) -> HookResponse:
             "repo": str(repo),
             "protected_files": len(manifest.entries),
             "verifier": list(policy.verifier_argv),
+            "census": _take_census_baseline(repo, state_dir, policy),
         },
     )
     enrollment.save_binding(
@@ -306,6 +308,44 @@ def handle_session_start(event: HookEvent, vendor: str) -> HookResponse:
     return HookResponse(ALLOW)
 
 
+def _take_census_baseline(
+    repo: Path, state_dir: Path, policy: enrollment.Policy
+) -> dict[str, Any]:
+    """Record which acceptance tests exist before the agent touches anything.
+
+    It has to happen here rather than at Stop: a module-level skip planted
+    during the session removes tests from collection, so a baseline taken
+    afterwards is already the shrunken one.  Enrollment is too early for the
+    opposite reason -- the repository moves on between enrolling and a
+    session, and a stale baseline would report honestly retired tests as
+    missing.
+    """
+    if not (policy.census and census.is_pytest_verifier(policy.verifier_argv)):
+        return {"armed": False, "tests": 0, "detail": "not supervising"}
+
+    report = state_dir / "census-baseline.xml"
+    try:
+        run_verifier(
+            census.probe_argv(policy.verifier_argv, report),
+            repo,
+            policy.timeout,
+        )
+        collected = census.parse_report(report)
+    except Exception as error:  # a probe failure must not block the session
+        collected = None
+        detail = repr(error)
+    else:
+        detail = "no report" if not collected else ""
+
+    if collected:
+        census.save_baseline(state_dir, collected)
+    return {
+        "armed": bool(collected),
+        "tests": len(collected or ()),
+        "detail": detail,
+    }
+
+
 def _retry_exhausted(
     state_dir: Path, audit: AuditChain, blocks: int
 ) -> HookResponse:
@@ -328,11 +368,15 @@ def _retry_exhausted(
 
 
 def _verdict(
-    claims: Sequence[Claim], verification: VerificationResult
+    claims: Sequence[Claim],
+    verification: VerificationResult,
+    census_result: census.CensusResult | None = None,
 ) -> HookVerdict:
     if verification.timed_out:
         return HookVerdict.VERIFIER_TIMEOUT
-    if verification.exit_code == 0:
+    # A census failure means the exit code is not evidence, so it cannot
+    # carry the round to VERIFIED -- the same rule the wrapper applies.
+    if verification.exit_code == 0 and not census_result:
         return HookVerdict.VERIFIED if claims else HookVerdict.PASS_NO_CLAIM
     return HookVerdict.FALSIFIED if claims else HookVerdict.INCOMPLETE
 
@@ -396,12 +440,26 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
         data=_claim_data(message, claims),
     )
 
+    baseline = census.load_baseline(state_dir)
+    report = state_dir / f"census-{round_number}.xml"
     verification: VerificationResult | None = None
     verifier_error: Exception | None = None
+    census_result: census.CensusResult | None = None
     try:
-        verification = run_verifier(policy.verifier_argv, repo, policy.timeout)
+        verification = run_verifier(
+            census.report_argv(policy.verifier_argv, report)
+            if baseline is not None
+            else policy.verifier_argv,
+            repo,
+            policy.timeout,
+        )
     except Exception as error:  # verifier launch failure must fail closed
         verifier_error = error
+    else:
+        if baseline is not None:
+            census_result = census.compare(
+                baseline, census.parse_report(report), verification.exit_code
+            )
 
     post = check(repo, manifest)
     if post:
@@ -427,7 +485,7 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
     if verification is None:  # pragma: no cover - defensive invariant
         raise RuntimeError("verifier produced neither a result nor an error")
 
-    verdict = _verdict(claims, verification)
+    verdict = _verdict(claims, verification, census_result)
     audit.append(
         round_number=round_number,
         kind="verdict",
@@ -439,6 +497,8 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
             "claims": len(claims),
             "stop_hook_active": event.stop_active,
             "evidence_tail": list(verification.tail),
+            "census": census_result.reason if census_result else None,
+            "census_detail": census_result.detail if census_result else "",
         },
     )
 
@@ -458,8 +518,21 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
 
     enrollment.bump_blocks(state_dir)
     evidence = "\n".join(verification.tail) or "Verifier produced no output."
+    if census_result:
+        evidence = (
+            CENSUS_EVIDENCE.format(
+                reason=census_result.reason, detail=census_result.detail
+            )
+            + "\n\n"
+            + evidence
+        )
     if verdict is HookVerdict.PASS_NO_CLAIM:
         guidance = "State an explicit completion status only when the task is done."
+    elif census_result:
+        guidance = (
+            "Make the acceptance tests run again, then state the completion "
+            "status."
+        )
     else:
         guidance = "Fix the reported failures and continue the task."
     return HookResponse(

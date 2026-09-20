@@ -8,7 +8,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path, PurePath
-from typing import Sequence
+from typing import Iterator, Sequence
 
 from .childenv import child_environment
 
@@ -20,7 +20,10 @@ _SHELL_OPERATOR_CHARS = frozenset("|&;<>")
 _VALUE_OPTIONS = frozenset("XWQ")
 _PYCACHE_PREFIX = "pycache_prefix="
 BYTECODE_VARIABLE = "PYTHONDONTWRITEBYTECODE"
-_ENV_IGNORE = ("-i", "--ignore-environment")
+# ``env`` treats a bare ``-`` as ``-i``; its --help documents both.
+_ENV_IGNORE = frozenset({"-i", "--ignore-environment", "-"})
+_UNSET_LONG = "--unset"
+_SPLIT_LONG = "--split-string"
 # The only CPython long option that takes a separate value; skipping it
 # without its value would end the scan on the value token.
 _VALUE_LONG_OPTIONS = frozenset({"--check-hash-based-pycs"})
@@ -60,34 +63,83 @@ def interpreter_index(argv: Sequence[str]) -> int | None:
     return None
 
 
-def strips_bytecode_environment(argv: Sequence[str], before: int) -> bool:
-    """Report a launcher that removes the variable TheUstad sets.
+def _launcher_actions(
+    argv: Sequence[str], before: int
+) -> "Iterator[tuple[str, str]]":
+    """Normalise what an ``env``-style launcher does before Python starts.
 
-    ``env -i`` clears the whole environment and ``env -u NAME`` drops one
-    variable, both before the interpreter ever starts, so inspecting only
-    interpreter flags would miss it and an honest run would be reported as
-    TAMPERED.
+    ``env`` accepts each option in several spellings -- clustered
+    (``-iu NAME``), attached (``-uNAME``), separated (``--unset NAME``) and
+    joined (``--unset=NAME``) -- and takes ``NAME=VALUE`` assignments as
+    positional arguments.  Reading one spelling of each leaves the rest as
+    ways through, so every caller below reads the same normalised view.
     """
     index = 0
     while index < before:
         token = argv[index]
         if token in _ENV_IGNORE:
-            return True
-        if token.startswith("--unset="):
-            if token[len("--unset=") :] == BYTECODE_VARIABLE:
-                return True
-        elif token == "-u":
-            if index + 1 < before and argv[index + 1] == BYTECODE_VARIABLE:
-                return True
+            yield ("ignore", "")
+        elif token == _SPLIT_LONG or token.startswith(f"{_SPLIT_LONG}="):
+            yield ("split", "")
+        elif token.startswith(f"{_UNSET_LONG}="):
+            yield ("unset", token[len(_UNSET_LONG) + 1 :])
+        elif token == _UNSET_LONG:
             index += 1
-        elif (
-            token.startswith("-")
-            and not token.startswith("--")
-            and "i" in token[1:]
-        ):
-            return True
+            yield ("unset", argv[index] if index < before else "")
+        elif token.startswith("--") or not token.startswith("-"):
+            name, separator, _ = token.partition("=")
+            if separator:
+                yield ("assign", name)
+        else:
+            for position, letter in enumerate(token[1:]):
+                if letter == "i":
+                    yield ("ignore", "")
+                    continue
+                if letter == "S":
+                    yield ("split", "")
+                    break
+                if letter == "u":
+                    # -u takes a value: the rest of the cluster, or the
+                    # next token, and either way the cluster ends here.
+                    value = token[position + 2 :]
+                    if not value and index + 1 < before:
+                        index += 1
+                        value = argv[index]
+                    yield ("unset", value)
+                    break
         index += 1
+
+
+def overrides_bytecode_environment(argv: Sequence[str], before: int) -> bool:
+    """Report a launcher that stops the variable TheUstad sets from taking.
+
+    ``env -i`` clears the whole environment and ``env -u NAME`` drops one
+    variable, both before the interpreter ever starts, so inspecting only
+    interpreter flags would miss them and an honest run would be reported as
+    TAMPERED.  An assignment does it too: CPython reads ``PYTHONDONTWRITEBYTECODE=``
+    as unset and ``=0`` as off, both of which let bytecode into the protected
+    tree.  Deciding which *other* values CPython reads as on would mean
+    reproducing its integer parsing, so any assignment to the variable is
+    refused -- TheUstad already sets it, and the message says to drop it.
+    """
+    for kind, value in _launcher_actions(argv, before):
+        if kind == "ignore":
+            return True
+        if kind in ("unset", "assign") and value == BYTECODE_VARIABLE:
+            return True
     return False
+
+
+def hides_the_command(argv: Sequence[str]) -> bool:
+    """Report a launcher that packs the command into a single argument.
+
+    ``env -S'...'`` re-splits its argument into arguments of its own, so the
+    interpreter and its flags are not argv tokens at all and every check here
+    looks straight past them -- including the one that finds the interpreter.
+    """
+    interpreter = interpreter_index(argv)
+    limit = len(argv) if interpreter is None else interpreter
+    return any(kind == "split" for kind, _ in _launcher_actions(argv, limit))
 
 
 def scan_interpreter_flags(
@@ -152,7 +204,7 @@ def ignores_bytecode_environment(argv: Sequence[str]) -> bool:
     if index is None:
         return False
     flags = scan_interpreter_flags(argv, index + 1)
-    if not (flags.ignores_environment or strips_bytecode_environment(argv, index)):
+    if not (flags.ignores_environment or overrides_bytecode_environment(argv, index)):
         return False
     return not (flags.suppresses_writes or flags.pycache_prefix)
 
@@ -167,20 +219,37 @@ def bytecode_conflict(
     repository-relative value such as ``tests/cache`` writes a parallel tree
     straight into the protected paths it was meant to avoid.
     """
+    if hides_the_command(argv):
+        return (
+            "env -S packs the whole command into one argument, so TheUstad "
+            "cannot see the interpreter or its flags and cannot tell where "
+            "bytecode would land; write the command out as separate arguments"
+        )
+
     index = interpreter_index(argv)
     if index is None:
         return None
     flags = scan_interpreter_flags(argv, index + 1)
-    if not (flags.ignores_environment or strips_bytecode_environment(argv, index)) or flags.suppresses_writes:
+    if (
+        not (flags.ignores_environment or overrides_bytecode_environment(argv, index))
+        or flags.suppresses_writes
+    ):
         return None
 
     prefix = flags.pycache_prefix
     if prefix is None:
+        if flags.ignores_environment:
+            cause = "isolated Python ignores PYTHONDONTWRITEBYTECODE"
+        else:
+            cause = (
+                f"this launcher stops the {BYTECODE_VARIABLE} TheUstad sets "
+                "from reaching Python (CPython reads an empty value as unset "
+                "and 0 as off, so an assignment counts too)"
+            )
         return (
-            "isolated Python ignores PYTHONDONTWRITEBYTECODE, so this verifier "
-            "would write bytecode into the protected tree and report an honest "
-            "run as TAMPERED; add -B, or -X pycache_prefix=DIR pointing outside "
-            "the repository"
+            f"{cause}, so this verifier would write bytecode into the "
+            "protected tree and report an honest run as TAMPERED; drop it, or "
+            "add -B, or -X pycache_prefix=DIR pointing outside the repository"
         )
 
     if repo is None:

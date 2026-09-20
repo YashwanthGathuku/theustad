@@ -15,9 +15,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, TextIO
 
+from theustadlib import census, enrollment, hookadapter
+from theustadlib.census import CENSUS_EVIDENCE
 from theustadlib.chain import AuditChain
-from theustadlib import census
-from theustadlib import enrollment, hookadapter
 from theustadlib.chain import verify as verify_audit_chain
 from theustadlib.claims import Claim, find_claims
 from theustadlib.freezer import (
@@ -141,12 +141,6 @@ def _evidence_resume_message(
 STATUS_REQUEST = (
     "The trusted verifier passed, but your final message made no explicit "
     "completion claim. Reply once with an explicit completion status."
-)
-
-CENSUS_EVIDENCE = (
-    "The verifier reported success, but its own report does not show the "
-    "acceptance tests running. A green exit code earned that way is not "
-    "evidence. Reason: {reason} -- {detail}"
 )
 
 NO_PROTECTED_INPUTS = (
@@ -635,6 +629,11 @@ def build_hook_parser() -> argparse.ArgumentParser:
         "--max-blocks", type=_positive_integer, default=5, metavar="N"
     )
     enroll_parser.add_argument("--require-claim", action="store_true")
+    enroll_parser.add_argument(
+        "--no-census",
+        action="store_true",
+        help="skip the pytest test census (one extra verifier run per session)",
+    )
 
     status_parser = commands.add_parser("status")
     status_parser.add_argument("--repo", required=True, type=Path)
@@ -762,6 +761,7 @@ def _enroll(args: argparse.Namespace) -> int:
         timeout=args.timeout,
         max_blocks=args.max_blocks,
         require_claim=args.require_claim,
+        census=not args.no_census,
         hook_timeout=hook_timeout,
     )
     policy_path = enrollment.save_policy(policy)
@@ -794,6 +794,7 @@ def _status(args: argparse.Namespace) -> int:
     _console_output(f"PROTECTED_PATTERNS {len(policy.patterns)}")
     _console_output(f"MAX_BLOCKS {policy.max_blocks}")
     _console_output(f"REQUIRE_CLAIM {str(policy.require_claim).lower()}")
+    _console_output(f"CENSUS {str(policy.census).lower()}")
     _console_output(f"AUDIT_CHAINS {len(audits)}")
     return 0
 
