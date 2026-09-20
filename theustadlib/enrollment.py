@@ -450,6 +450,41 @@ def save_binding(binding: SessionBinding) -> Path:
     return _atomic_json(expected, binding.to_dict())
 
 
+# A SessionStart that continues something rather than beginning it.  The
+# specification is explicit that these must never re-freeze a changed
+# protected tree or reset the retry counter (SPEC 4.8a).
+CONTINUATION_SOURCES = frozenset({"resume", "clear", "compact", "fork"})
+
+
+def adoptable_state(repo: str | os.PathLike[str]) -> Path | None:
+    """The most recent unfinished session state for this repository.
+
+    A continuation whose session id TheUstad has not bound would otherwise
+    start a fresh baseline from a tree the agent has already been editing.
+    Taking over the existing state keeps the manifest, the block count, the
+    census baseline and the audit chain that session was working under.
+
+    A session that reached a terminal verdict is not adopted: it is finished,
+    and a genuinely new session should baseline for itself.
+    """
+    root = repository_state_dir(repo)
+    if not root.is_dir():
+        return None
+    candidates = [
+        directory
+        for directory in root.iterdir()
+        if directory.is_dir()
+        and (directory / "manifest.json").is_file()
+        and terminal_verdict(directory) is None
+    ]
+    if not candidates:
+        return None
+    # Most recently touched: the continuation came from the session that was
+    # running, and an older baseline would hold the agent to a tree that has
+    # legitimately moved on.
+    return max(candidates, key=lambda directory: directory.stat().st_mtime)
+
+
 def load_binding(vendor: str, session_id: str) -> SessionBinding | None:
     value = _read_json(binding_path(vendor, session_id))
     if value is None:

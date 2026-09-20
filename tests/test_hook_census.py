@@ -400,3 +400,60 @@ def test_a_baseline_that_vanishes_before_stop_is_recorded(tmp_path):
         if record["kind"] == "warning"
     ]
     assert any("no baseline is bound" in w["data"]["message"] for w in warnings)
+
+
+@pytest.mark.parametrize("source", ["clear", "fork", "resume", "compact"])
+def test_a_continuation_never_rebaselines_an_edited_tree(tmp_path, source):
+    """SPEC 4.8a: these events must never re-freeze or reset the counter.
+
+    De-duplicating on vendor + session_id covers the continuations that keep
+    their id and misses any that do not. One arriving with an unknown id used
+    to freeze the tree as it stood -- after editing -- and start the retry
+    counter again.
+    """
+    session = _Session(tmp_path)
+    protected = session.repo / "tests" / "test_other.py"
+    baseline_entries = _protected_entry_count(session)
+    protected.unlink()
+
+    response = session._hook(
+        "SessionStart", {**session._start(), "session_id": "other", "source": source}
+    )
+
+    assert response.returncode == 0
+    assert "restart Claude Code" in response.stdout
+    # One baseline, and still the one taken before the deletion.
+    assert _protected_entry_count(session) == baseline_entries
+
+
+@pytest.mark.parametrize("source", ["clear", "fork"])
+def test_an_unplaceable_continuation_cannot_verify(tmp_path, source):
+    """Refusing to baseline is only safe if Stop then refuses to verify."""
+    session = _Session(tmp_path)
+    session._hook(
+        "SessionStart", {**session._start(), "session_id": "other", "source": source}
+    )
+
+    response = session._hook(
+        "Stop",
+        {
+            "session_id": "other",
+            "transcript_path": "/tmp/transcript.jsonl",
+            "cwd": str(session.repo),
+            "permission_mode": "default",
+            "hook_event_name": "Stop",
+            "stop_hook_active": False,
+            "last_assistant_message": CLAIM,
+            "background_tasks": [],
+            "session_crons": [],
+        },
+    )
+
+    assert response.returncode == 2
+    assert "no protected-input baseline" in response.stderr
+
+
+def _protected_entry_count(session) -> int:
+    manifests = list(session.home.rglob("manifest.json"))
+    assert len(manifests) == 1, [str(path) for path in manifests]
+    return len(json.loads(manifests[0].read_text())["entries"])

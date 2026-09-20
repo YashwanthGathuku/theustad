@@ -28,6 +28,17 @@ read. Re-baselining on re-entry would be an attack in itself: plant a
 module-level skip, trigger a compaction, and the new baseline is the already
 shrunken one.
 
+That de-duplication is by `vendor + session_id`, which covers the
+continuations that keep their id. A `resume`, `clear`, `compact` or `fork`
+arriving with an id TheUstad has not bound is refused rather than baselined:
+it would otherwise freeze the protected inputs as they stand after editing
+and reset the retry counter, which SPEC 4.8a forbids. No new baseline is
+written, `Stop` finds no binding and blocks through the path that already
+exists for it, and the message says to restart Claude Code. Continuing such a
+session properly would mean carrying its manifest, snapshots and counters
+into the new session's state, which the manifest's recorded state directory
+and snapshot paths do not allow to be copied; that is not attempted here.
+
 Fixture: `tests/fixtures/hooks/claude/session_start.json`.
 
 ## Claude `Stop`

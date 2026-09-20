@@ -258,6 +258,12 @@ def handle_session_start(event: HookEvent, vendor: str) -> HookResponse:
         return HookResponse(ALLOW)
 
     repo = Path(policy.repo).resolve(strict=True)
+
+    if event.source in enrollment.CONTINUATION_SOURCES:
+        refusal = _unbound_continuation(event, vendor, repo)
+        if refusal is not None:
+            return refusal
+
     state_dir = enrollment.session_state_dir(repo, vendor, event.session_id)
     try:
         state_dir.mkdir(parents=True, exist_ok=False)
@@ -371,6 +377,38 @@ def _take_census_baseline(
         "tests": len(carrying),
         "detail": detail,
     }
+
+
+def _unbound_continuation(
+    event: HookEvent, vendor: str, repo: Path
+) -> HookResponse | None:
+    """Refuse to baseline afresh for a continuation TheUstad cannot place.
+
+    De-duplicating on ``vendor + session_id`` covers the continuations that
+    keep their id and misses any that do not.  A ``clear`` or ``fork``
+    arriving with an unknown id would otherwise freeze the tree *as it now
+    stands* -- after the agent has been editing it -- and reset the retry
+    counter, which SPEC 4.8a forbids in as many words.  Demonstrated: a
+    protected test deleted, then a continuation, and the new baseline had
+    four entries where the real one had five.
+
+    Continuing that session properly would mean carrying its manifest, its
+    snapshots and its counters across, which the manifest's recorded state
+    directory and snapshot paths do not allow to be copied.  So this refuses
+    instead: no new baseline is written, ``Stop`` finds no binding and blocks
+    through the path that already exists for it, and the operator is told to
+    restart rather than being silently unprotected.
+    """
+    if enrollment.adoptable_state(repo) is None:
+        return None  # nothing was running: a genuine first start
+
+    return _system_message(
+        f"TheUstad: this {event.source} continues a session that is not bound "
+        "to it, and an unfinished baseline already exists for this repository. "
+        "Re-freezing now would take the protected inputs as they stand after "
+        "editing, and reset the retry counter. No new baseline was created; "
+        "restart Claude Code to begin a session TheUstad can verify."
+    )
 
 
 def _retry_exhausted(
