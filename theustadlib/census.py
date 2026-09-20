@@ -83,29 +83,34 @@ def is_pytest_verifier(argv: Sequence[str]) -> bool:
     ``-mpytest`` and ``-Bmpytest`` are one spelling to that scanner and were
     three separate ways through to a hand-written one.
 
-    An interpreter that names no module is not treated as the answer, because
-    it may not be an interpreter at all: ``pytest -k python`` and
-    ``pytest -- tests/python`` name an expression and a test path, and reading
-    either as the command would disable the census on a valid verifier.  A
-    real interpreter with no module runs a script rather than pytest, so
-    falling through costs nothing there.
+    Neither reading may veto the other.  A bare word among pytest's own
+    arguments can match the interpreter search -- ``pytest -k python -m
+    smoke`` matches on the ``-k`` expression, and then pytest's ``-m`` marker
+    expression reads as an interpreter module named ``smoke``.  Letting that
+    decide disabled the census on a valid verifier, so either reading finding
+    pytest is enough.
+
+    The cost is a false positive on a command like ``python -m foo -- pytest``,
+    where the module is named and is not pytest.  That is the safe direction
+    and it is self-correcting: a command that is not pytest writes no report,
+    so the census stands down at baseline rather than blocking anything.  A
+    false negative is silent, which is the failure this whole check exists to
+    avoid.
     """
     index = interpreter_index(argv)
     if index is not None:
         module = scan_interpreter_flags(argv, index + 1).module
-        if module:
-            return module.split(".")[0] == "pytest"
+        if module and module.split(".")[0] == "pytest":
+            return True
 
     # A pytest executable, possibly behind a launcher whose own `--` ends its
     # options rather than pytest's arguments.  A launcher operand is skipped
     # for the same reason as above: `env --chdir pytest -- pytest` names a
-    # directory, not the command.  A false positive here is self-correcting:
-    # a command that is not pytest writes no report, and the census stands
-    # down at baseline rather than blocking anything.
+    # directory, not the command.
     operands = launcher_operands(argv)
     return any(
-        index not in operands and _is_pytest_token(token)
-        for index, token in enumerate(argv)
+        position not in operands and _is_pytest_token(token)
+        for position, token in enumerate(argv)
     )
 
 
@@ -159,13 +164,13 @@ def _pytest_index(argv: Sequence[str]) -> int:
     path itself, and starting the separator search after it would append the
     reporting flag past pytest's ``--``, where it reads as another path.
     """
-    index = interpreter_index(argv)
-    if index is not None and scan_interpreter_flags(argv, index + 1).module:
-        return index
     operands = launcher_operands(argv)
     for position, token in enumerate(argv):
         if position not in operands and _is_pytest_token(token):
             return position
+    index = interpreter_index(argv)
+    if index is not None and scan_interpreter_flags(argv, index + 1).module:
+        return index
     return 0
 
 

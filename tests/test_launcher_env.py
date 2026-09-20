@@ -320,3 +320,23 @@ def test_env_itself_is_still_read_as_env(command):
 
     with pytest.raises(ValueError):
         parse_command(command.format(python=python))
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "env npm test -- -i",
+        "env true -i",
+        "env make test -i",
+        "env FOO=bar npm test -- -i",
+        "env -u SOMETHING npm test -- -i",
+    ],
+)
+def test_env_stops_reading_options_at_the_command_it_launches(command):
+    """env's grammar is `env [OPTION]... [NAME=VALUE]... [COMMAND [ARG]...]`.
+
+    The first bare word is the command, and `-i` after it is that command's,
+    not env's. Reading it as env's refuses a verifier that never touches
+    Python at all.
+    """
+    assert parse_command(command)

@@ -355,8 +355,17 @@ def test_a_launcher_separator_is_not_mistaken_for_pytest_s(build):
         ([sys.executable, "-mcoverage", "run"], False),
         ([sys.executable, "-Bmcoverage", "run"], False),
         ([sys.executable, "-c", "import pytest"], False),
-        # The interpreter names the module, so a later token does not.
-        ([sys.executable, "-m", "foo", "--", "pytest"], False),
+        # An accepted false positive, reversed deliberately: this was False
+        # while the interpreter reading could veto the token reading, and
+        # that veto disabled the census on `pytest -k python -m smoke`,
+        # where pytest's own -m reads as an interpreter module. Arming on a
+        # command that is not pytest costs nothing -- it writes no report and
+        # the census stands down -- while a false negative is silent.
+        ([sys.executable, "-m", "foo", "--", "pytest"], True),
+        # pytest's -k expression and -m marker expression, which between them
+        # look exactly like an interpreter running a module.
+        (["pytest", "-k", "python", "-m", "smoke"], True),
+        (["pytest", "-m", "smoke", "-k", "python"], True),
         # A pytest argument that happens to be named like an interpreter is
         # not one: these are a test path and a -k expression.
         (["pytest", "-q", "--", "tests/python"], True),

@@ -79,9 +79,12 @@ def _launcher_actions(
     caller can tell an option's operand from the command that follows it.
 
     These are ``env``'s option semantics, so they are read only where ``env``
-    is actually being invoked.  Applying them to another program's arguments
-    means calling ``npm test -- -i`` an environment-clearing launcher, which
-    refuses a verifier that never touches Python at all.
+    is actually being invoked, and only up to the command it launches.  env
+    documents its grammar as ``env [OPTION]... [-] [NAME=VALUE]... [COMMAND
+    [ARG]...]``, so the first bare word is the command and everything after
+    it belongs to that command: in ``env npm test -- -i`` the ``-i`` is
+    npm's, and reading it as env's refuses a verifier that never touches
+    Python at all.
     """
     start = _env_index(argv, before)
     if start is None:
@@ -101,9 +104,16 @@ def _launcher_actions(
                 argv[index] if index < before else "",
                 index,
             )
-        elif token.startswith("--") or not token.startswith("-"):
-            if separator:
-                yield ("assign", name, None)
+        elif token == "--":
+            # env stops reading options here, so the next token is the
+            # command however it is spelled.
+            break
+        elif token.startswith("--"):
+            pass  # some other long option of env's, with no operand
+        elif not token.startswith("-"):
+            if not separator:
+                break  # a bare word: env's COMMAND, and its arguments follow
+            yield ("assign", name, None)
         else:
             for position, letter in enumerate(token[1:]):
                 if letter == "i":
