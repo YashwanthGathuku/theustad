@@ -324,6 +324,7 @@ def _take_census_baseline(
         return {"armed": False, "tests": 0, "detail": "not supervising"}
 
     report = state_dir / "census-baseline.xml"
+    census.clear_report(report)
     try:
         run_verifier(
             census.probe_argv(policy.verifier_argv, report),
@@ -442,6 +443,7 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
 
     baseline = census.load_baseline(state_dir)
     report = state_dir / f"census-{round_number}.xml"
+    census.clear_report(report)
     verification: VerificationResult | None = None
     verifier_error: Exception | None = None
     census_result: census.CensusResult | None = None

@@ -71,6 +71,11 @@ def is_pytest_verifier(argv: Sequence[str]) -> bool:
             return True
         if token == "-m" and index + 1 < len(argv):
             return argv[index + 1].split(".")[0] == "pytest"
+        # CPython accepts the module attached to the flag as well, and a
+        # verifier spelled that way ran unsupervised while the census
+        # reported nothing at all.
+        if token.startswith("-m") and len(token) > 2:
+            return token[2:].split(".")[0] == "pytest"
         if token in ("-c", "--"):
             break
     return False
@@ -85,11 +90,6 @@ def canonical_id(module_path: str, name: str) -> str:
     return f"{module_path}::{name}"
 
 
-    # The probe also asks for a report. Whether one appears is how TheUstad
-    # learns that this verifier answers the flag at all, so that a later
-    # missing report means something happened rather than that the verifier
-    # never wrote one.
-    return [*report_argv(probe, report), "-p", "no:cacheprovider"]
 def normalize_report_entry(classname: str | None, name: str | None) -> str | None:
     if not name:
         return None
@@ -99,12 +99,7 @@ def normalize_report_entry(classname: str | None, name: str | None) -> str | Non
 def probe_argv(argv: Sequence[str], report: str | Path) -> list[str]:
     """Argv for TheUstad's own baseline measurement, not for acceptance.
 
-    ``--verbosity=-1`` pins the collection output to node ids whatever the
-    verifier already passes: appending a bare ``-q`` to a verifier that is
-    itself quiet makes pytest print per-file counts instead, and the census
-    then reads as empty.
-
-    Because this probe never decides a verdict it may also be made safe to
+    Because this probe never decides a verdict it may be made safe to
     run.  An interpreter that ignores ``PYTHONDONTWRITEBYTECODE`` would write
     bytecode into the protected tree and the probe itself would be reported as
     tampering.  The acceptance run is left exactly as configured.
@@ -126,8 +121,34 @@ def report_argv(argv: Sequence[str], report: str | Path) -> list[str]:
 
     Only a reporting flag is added. It cannot change which tests are
     selected or what they assert, so the verifier remains the oracle.
+
+    It goes before any ``--``, because everything after that separator is a
+    test path rather than an option: appended there, pytest looks for a file
+    named after the flag, exits 4 and writes no report, which would stand the
+    census down on a verifier that was perfectly valid.
     """
-    return [*argv, f"--junit-xml={report}"]
+    flag = f"--junit-xml={report}"
+    argv = list(argv)
+    if "--" in argv:
+        index = argv.index("--")
+        return [*argv[:index], flag, *argv[index:]]
+    return [*argv, flag]
+
+
+def clear_report(path: str | Path) -> None:
+    """Remove a report before the run that is supposed to write it.
+
+    The path is derived from the round number, and a round number repeats:
+    a VERIFIED round resets the block count, so the next Stop is round 1
+    again.  A verifier that dies before pytest writes anything -- which is
+    exactly the ``os._exit(0)`` attack -- would otherwise leave the previous
+    round's passing report in place to be read as this round's evidence.
+    """
+    report = Path(path)
+    if report.is_symlink():
+        report.unlink()
+        return
+    report.unlink(missing_ok=True)
 
 
 def parse_report(path: str | Path) -> dict[str, str] | None:

@@ -286,3 +286,50 @@ def test_a_legitimately_skipped_test_does_not_block_an_honest_fix(tmp_path):
 def test_pytest_behind_a_launcher_is_still_supervised(argv):
     """Reading argv[0] alone would leave these unsupervised and silent."""
     assert census.is_pytest_verifier(argv) is True
+
+
+def test_the_report_flag_goes_before_a_path_separator():
+    """After --, pytest reads the flag as a test path, exits 4 and writes nothing."""
+    argv = [sys.executable, "-m", "pytest", "-q", "--", "tests"]
+
+    built = census.report_argv(argv, "/tmp/report.xml")
+
+    assert built[built.index("--") - 1] == "--junit-xml=/tmp/report.xml"
+    assert built[-1] == "tests"
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        ([sys.executable, "-mpytest", "-q"], True),
+        ([sys.executable, "-m", "pytest", "-q"], True),
+        ([sys.executable, "-mpytest.__main__"], True),
+        ([sys.executable, "-mcoverage", "run"], False),
+        ([sys.executable, "-c", "import pytest"], False),
+    ],
+)
+def test_every_module_spelling_cpython_accepts_is_recognised(argv, expected):
+    """CPython takes the module attached to the flag as well as apart from it."""
+    assert census.is_pytest_verifier(argv) is expected
+
+
+def test_clearing_a_report_removes_what_an_earlier_round_left(tmp_path):
+    report = tmp_path / "census-1.xml"
+    report.write_text("<testsuite/>", encoding="utf-8")
+
+    census.clear_report(report)
+
+    assert not report.exists()
+    census.clear_report(report)  # absent is not an error
+
+
+def test_clearing_a_report_removes_a_symlink_rather_than_its_target(tmp_path):
+    target = tmp_path / "elsewhere.xml"
+    target.write_text("<testsuite/>", encoding="utf-8")
+    link = tmp_path / "census-1.xml"
+    link.symlink_to(target)
+
+    census.clear_report(link)
+
+    assert not link.exists()
+    assert target.exists()

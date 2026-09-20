@@ -103,19 +103,28 @@ def _environment_that_forbids_bytecode() -> dict[str, str]:
     return environment
 
 
-def _writes_bytecode(tmp_path: Path, launcher: list[str]) -> bool:
-    """Run a real interpreter behind a real env and look for the bytecode."""
+def _writes_bytecode(tmp_path: Path, launcher: list[str]) -> bool | None:
+    """Run a real interpreter behind a real env and look for the bytecode.
+
+    ``None`` means this env could not run that spelling at all.  Not every
+    env is coreutils: BSD env, which is what macOS ships, has none of the
+    GNU long options, so ``--unset NAME`` is read as the command to run.  A
+    spelling that cannot run cannot defeat anything, and refusing it costs
+    nothing, so there is nothing to observe rather than something to assert.
+    """
     protected = tmp_path / "tests"
     protected.mkdir()
     (protected / "probe_mod.py").write_text("VALUE = 1\n", encoding="utf-8")
     code = f"import sys; sys.path.insert(0, {str(protected)!r}); import probe_mod"
 
-    subprocess.run(
+    probe = subprocess.run(
         [POSIX_ENV, *launcher, sys.executable, "-c", code],
         capture_output=True,
-        check=True,
+        check=False,
         env=_environment_that_forbids_bytecode(),
     )
+    if probe.returncode != 0:
+        return None
     return (protected / "__pycache__").exists()
 
 
@@ -123,7 +132,11 @@ def _writes_bytecode(tmp_path: Path, launcher: list[str]) -> bool:
 @pytest.mark.parametrize("launcher", DEFEATS)
 def test_each_refused_spelling_really_defeats_the_variable(tmp_path, launcher):
     """Ground the rule in observed behaviour, not in how the flags read."""
-    assert _writes_bytecode(tmp_path, launcher.split()), (
+    observed = _writes_bytecode(tmp_path, launcher.split())
+    if observed is None:
+        pytest.skip(f"this env cannot run {launcher!r}")
+
+    assert observed, (
         f"{launcher!r} was refused but leaves the suppression in place, so the "
         "rule refuses a verifier that would have been honest"
     )
@@ -133,7 +146,11 @@ def test_each_refused_spelling_really_defeats_the_variable(tmp_path, launcher):
 @pytest.mark.parametrize("launcher", LEAVES_IT_ALONE)
 def test_each_accepted_spelling_really_leaves_it_alone(tmp_path, launcher):
     """The other half of the rule: accepting these has to stay safe."""
-    assert not _writes_bytecode(tmp_path, launcher.split()), (
+    observed = _writes_bytecode(tmp_path, launcher.split())
+    if observed is None:
+        pytest.skip(f"this env cannot run {launcher!r}")
+
+    assert not observed, (
         f"{launcher!r} is accepted but lets bytecode into the protected tree, "
         "so an honest run would be reported as TAMPERED"
     )
@@ -150,8 +167,68 @@ def test_a_redundant_assignment_is_refused_although_it_is_harmless(tmp_path):
     reports an honest run as TAMPERED.  TheUstad already sets the variable, so
     the assignment buys nothing, and the message says to drop it.
     """
-    assert not _writes_bytecode(tmp_path, [f"{BYTECODE_VARIABLE}=1"])
+    assert _writes_bytecode(tmp_path, [f"{BYTECODE_VARIABLE}=1"]) is False
 
     python = Path(sys.executable).as_posix()
     with pytest.raises(ValueError, match="drop it"):
         parse_command(f"env {BYTECODE_VARIABLE}=1 {python} -m pytest -q")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "env -u PYTHONDONTWRITEBYTECODE pytest -q",
+        "env -i pytest -q",
+        "env - pytest -q",
+        "env PYTHONDONTWRITEBYTECODE= pytest -q",
+        "env -i npm test",
+    ],
+)
+def test_a_stripping_launcher_with_no_interpreter_to_vouch_for_it(command):
+    """A direct pytest has no interpreter token, so nothing can prove it safe.
+
+    Running one behind `env -u` writes bytecode into the protected tree and
+    ends an honest run as TAMPERED, and there is no flag to read that would
+    have said otherwise -- so the command is refused rather than trusted.
+    """
+    with pytest.raises(ValueError, match="no interpreter is named"):
+        parse_command(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["env pytest -q", "uv run pytest -q", "env -u SOMETHING_ELSE pytest -q"],
+)
+def test_a_launcher_that_touches_nothing_still_runs_a_bare_pytest(command):
+    """The refusal is about stripping the variable, not about the launcher."""
+    assert parse_command(command)
+
+
+@pytest.mark.skipif(POSIX_ENV is None, reason="no POSIX env launcher here")
+def test_a_direct_pytest_really_writes_bytecode_when_the_variable_is_gone(tmp_path):
+    """The evidence for the refusal above, rather than a reading of the flags."""
+    pytest_binary = shutil.which("pytest")
+    if pytest_binary is None:
+        pytest.skip("no pytest executable on PATH")
+
+    protected = tmp_path / "tests"
+    protected.mkdir()
+    (protected / "__init__.py").write_text("", encoding="utf-8")
+    (protected / "helper_mod.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (protected / "test_v.py").write_text(
+        "from tests.helper_mod import VALUE\n\n\ndef test_v():\n    assert VALUE == 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
+
+    subprocess.run(
+        [POSIX_ENV, "-u", BYTECODE_VARIABLE, pytest_binary, "-q"],
+        cwd=tmp_path,
+        capture_output=True,
+        check=False,
+        env=_environment_that_forbids_bytecode(),
+    )
+
+    assert (protected / "__pycache__").exists(), (
+        "expected a direct pytest to write bytecode once the variable is gone"
+    )

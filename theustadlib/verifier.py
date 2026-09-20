@@ -228,6 +228,17 @@ def bytecode_conflict(
 
     index = interpreter_index(argv)
     if index is None:
+        # No interpreter token to read, so nothing here can prove the command
+        # safe.  A direct pytest executable behind such a launcher does write
+        # bytecode into the protected tree -- confirmed by running one -- and
+        # an honest run then ends as TAMPERED, so this fails closed.
+        if overrides_bytecode_environment(argv, len(argv)):
+            return (
+                f"this launcher stops the {BYTECODE_VARIABLE} TheUstad sets "
+                "from reaching Python, and no interpreter is named here to "
+                "show that the command is safe anyway; drop it, or name the "
+                "interpreter with -B"
+            )
         return None
     flags = scan_interpreter_flags(argv, index + 1)
     if (

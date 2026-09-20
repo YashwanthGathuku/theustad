@@ -281,6 +281,7 @@ class TheUstadRunner:
             # removes tests from collection, so a late census is already shrunk.
             self.state_dir.mkdir(parents=True, exist_ok=True)
             probe_report = self.state_dir / "census-baseline.xml"
+            census.clear_report(probe_report)
             probe = self.census_runner(
                 census.probe_argv(self.verifier_argv, probe_report),
                 self.repo,
@@ -356,6 +357,7 @@ class TheUstadRunner:
                     verdict = Verdict.TAMPERED
                 else:
                     report_path = self.state_dir / f"census-{round_number}.xml"
+                    census.clear_report(report_path)
                     verification = self.verifier_runner(
                         census.report_argv(self.verifier_argv, report_path)
                         if baseline_census is not None

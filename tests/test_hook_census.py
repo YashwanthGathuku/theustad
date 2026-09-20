@@ -53,6 +53,7 @@ class _Session:
     def __init__(
         self, tmp_path: Path, *enroll_args: str, extra: dict[str, str] | None = None
     ):
+        # enroll_args are passed through, so a caller can name its own verifier.
         self.repo = _repo(tmp_path)
         for name, source in (extra or {}).items():
             (self.repo / "tests" / name).write_text(source, encoding="utf-8")
@@ -236,4 +237,41 @@ def test_a_compaction_cannot_rebaseline_the_census(tmp_path):
 
     assert reentry.returncode == 0, reentry.stderr
     assert response.returncode == 2
+    assert "does not show the acceptance tests running" in response.stderr
+
+
+def test_a_verified_round_does_not_leave_its_report_for_the_next_one(tmp_path):
+    """A VERIFIED round resets the blocks, so the next Stop is round 1 again.
+
+    The report path is derived from the round number, so without clearing it
+    the second Stop reads the first round's passing report -- and the attack
+    that dies before pytest writes anything is exactly the one that benefits.
+    """
+    session = _Session(tmp_path)
+    first = session.stop(HONEST)
+
+    second = session.stop(T7_EXIT)
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 2, "the attack reused the honest round's report"
+    assert "does not show the acceptance tests running" in second.stderr
+
+
+@pytest.mark.parametrize(
+    ("label", "verifier"),
+    [
+        ("attached -m", "{python} -B -mpytest -q"),
+        ("path separator", "{python} -B -m pytest -q -- tests"),
+    ],
+)
+def test_pytest_is_supervised_however_the_verifier_spells_it(
+    tmp_path, label, verifier
+):
+    """An unrecognised spelling stands the census down without saying so."""
+    python = Path(sys.executable).as_posix()
+    session = _Session(tmp_path, "--verifier", verifier.format(python=python))
+
+    response = session.stop(T7_EXIT)
+
+    assert response.returncode == 2, f"{label} left the verifier unsupervised"
     assert "does not show the acceptance tests running" in response.stderr

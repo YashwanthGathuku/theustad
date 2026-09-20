@@ -277,7 +277,13 @@ The baseline is one verifier run recorded before the agent starts, and the
 acceptance run gains only a reporting flag — it cannot change which tests are
 selected or what they assert, so the verifier stays the oracle. pytest is
 recognised behind a launcher too (`uv run pytest`, `poetry run pytest`,
-`env pytest`), because leaving those unsupervised would be silent. Anything
+`env pytest`) and however the module is spelled (`-m pytest`, `-mpytest`),
+because leaving those unsupervised would be silent. The reporting flag goes
+before any `--`, since everything after that separator is a test path. Each
+round's report is removed before the run that must write it: the path is
+derived from the round number and a round number repeats, so a verifier that
+dies before pytest writes anything would otherwise inherit the previous
+round's passing report. Anything
 that is not pytest, or does not answer the report flag, is left alone rather
 than blocked. `--no-census` disables the census.
 
