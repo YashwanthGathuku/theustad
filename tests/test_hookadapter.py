@@ -133,7 +133,11 @@ def test_real_claim_green_verifier_is_visible_verified(tmp_path, monkeypatch):
     assert "VERIFIED" in response.stdout["systemMessage"]
     records = _audit_records(repo)
     assert records[-1]["data"]["verdict"] == "VERIFIED"
-    assert records[-1]["seq"] == 2
+    # The invariant is that the chain is contiguous and the verdict is its
+    # last record, not that it sits at a particular index: SessionStart adds
+    # a record whenever it has something to warn about, and this fixture's
+    # stub verifier writes no report, so the census correctly says so.
+    assert [record["seq"] for record in records] == list(range(len(records)))
 
 
 def test_deleted_test_is_tampered_and_restored(tmp_path, monkeypatch):

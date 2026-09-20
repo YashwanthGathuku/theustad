@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from . import census, enrollment
-from .census import CENSUS_EVIDENCE
+from .census import CENSUS_EVIDENCE, CENSUS_UNSUPERVISED
 from .chain import AuditChain
 from .claims import Claim, find_claims
 from .freezer import Tampering, check, freeze, restore
@@ -270,6 +270,8 @@ def handle_session_start(event: HookEvent, vendor: str) -> HookResponse:
     enrollment.save_session_policy(state_dir, policy)
     enrollment.reset_blocks(state_dir)
 
+    census_summary = _take_census_baseline(repo, state_dir, policy)
+
     audit = AuditChain(state_dir / "logs")
     audit.append(
         round_number=0,
@@ -281,7 +283,7 @@ def handle_session_start(event: HookEvent, vendor: str) -> HookResponse:
             "repo": str(repo),
             "protected_files": len(manifest.entries),
             "verifier": list(policy.verifier_argv),
-            "census": _take_census_baseline(repo, state_dir, policy),
+            "census": census_summary,
         },
     )
     enrollment.save_binding(
@@ -293,9 +295,10 @@ def handle_session_start(event: HookEvent, vendor: str) -> HookResponse:
             audit_path=str(audit.path.resolve(strict=True)),
         )
     )
+    # Both of these are indistinguishable from a real baseline at Stop time,
+    # so they have to be said out loud while the session can still be fixed.
+    warnings: list[str] = []
     if not manifest.entries:
-        # An empty baseline is indistinguishable from a real one at Stop time,
-        # so it has to be said out loud while the session can still be fixed.
         audit.append(
             round_number=0,
             kind="warning",
@@ -304,7 +307,18 @@ def handle_session_start(event: HookEvent, vendor: str) -> HookResponse:
                 "patterns": list(policy.patterns),
             },
         )
-        return _system_message(NO_PROTECTED_INPUTS)
+        warnings.append(NO_PROTECTED_INPUTS)
+    if policy.census and not census_summary["armed"]:
+        message = CENSUS_UNSUPERVISED.format(detail=census_summary["detail"])
+        audit.append(
+            round_number=0,
+            kind="warning",
+            data={"message": message, "verifier": list(policy.verifier_argv)},
+        )
+        warnings.append(message)
+
+    if warnings:
+        return _system_message("\n\n".join(warnings))
     return HookResponse(ALLOW)
 
 

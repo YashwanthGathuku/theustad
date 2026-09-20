@@ -63,7 +63,10 @@ class _Session:
         self.home = tmp_path / "external"
         self.env = {**os.environ, "THEUSTAD_HOME": str(self.home)}
         assert self._run("enroll", "--repo", str(self.repo), *enroll_args).returncode == 0
-        assert self._hook("SessionStart", self._start()).returncode == 0
+        # Kept, because a repeated SessionStart takes the re-entry path and
+        # never reports what the first one established.
+        self.started = self._hook("SessionStart", self._start())
+        assert self.started.returncode == 0
 
     def _run(self, *args, payload=None):
         return subprocess.run(
@@ -282,3 +285,41 @@ def test_pytest_is_supervised_however_the_verifier_spells_it(
 
     assert response.returncode == 2, f"{label} left the verifier unsupervised"
     assert "does not show the acceptance tests running" in response.stderr
+
+
+def test_an_unsupervised_verifier_is_said_out_loud_at_session_start(tmp_path):
+    """Standing down looks exactly like having nothing to report.
+
+    TheUstad cannot locate the command inside an arbitrary launcher's
+    options, so some verifiers genuinely cannot be supervised. The operator
+    has to learn that while the session can still be fixed, not by reading
+    the audit chain afterwards.
+    """
+    python = Path(sys.executable).as_posix()
+    session = _Session(tmp_path, "--verifier", f"{python} -B -c pass")
+
+    assert "census did not arm" in session.started.stdout
+    assert "--no-census" in session.started.stdout
+
+
+def test_a_supervised_verifier_says_nothing(tmp_path):
+    """The warning has to mean something, so it cannot fire on every session."""
+    session = _Session(tmp_path)
+
+    assert session.started.returncode == 0
+    assert "census did not arm" not in session.started.stdout
+
+
+def test_disabling_the_census_is_not_warned_about(tmp_path):
+    """--no-census is the operator saying they meant it."""
+    session = _Session(tmp_path, "--no-census")
+
+    log = session.home.rglob("*.jsonl")
+    warnings = [
+        record
+        for path in log
+        for record in (json.loads(line) for line in path.read_text().splitlines())
+        if record["kind"] == "warning"
+    ]
+
+    assert not any("census did not arm" in w["data"]["message"] for w in warnings)

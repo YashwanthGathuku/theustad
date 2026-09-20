@@ -170,12 +170,31 @@ def interpreter_index(argv: Sequence[str]) -> int | None:
 
     A launcher option's operand is not the command it launches, even when it
     is spelled like one -- see ``launcher_operands``.
+
+    This returns the first candidate.  Where the answer has to be *right*
+    rather than merely likely, use ``interpreter_indices``: only ``env``'s
+    grammar is known here, and an unknown launcher's operand can look like an
+    interpreter with nothing to tell them apart.
+    """
+    candidates = interpreter_indices(argv)
+    return candidates[0] if candidates else None
+
+
+def interpreter_indices(argv: Sequence[str]) -> tuple[int, ...]:
+    """Every token that could be the interpreter being run.
+
+    A launcher TheUstad cannot read makes this genuinely ambiguous:
+    ``uv run --env-file python … /usr/bin/python -I -m pytest`` has two
+    candidates, and `uv run --help` documents 77 options, so deciding between
+    them would mean carrying one option table per launcher per version.
+    Rather than guess, callers that must be sure check them all.
     """
     operands = launcher_operands(argv)
-    for index, token in enumerate(argv):
-        if index not in operands and _is_python_interpreter(token):
-            return index
-    return None
+    return tuple(
+        index
+        for index, token in enumerate(argv)
+        if index not in operands and _is_python_interpreter(token)
+    )
 
 
 def overrides_bytecode_environment(argv: Sequence[str], before: int) -> bool:
@@ -283,13 +302,15 @@ def ignores_bytecode_environment(argv: Sequence[str]) -> bool:
     still honours.  Where a prefix *sends* the bytecode is a separate
     question -- see ``bytecode_conflict``.
     """
-    index = interpreter_index(argv)
-    if index is None:
-        return False
-    flags = scan_interpreter_flags(argv, index + 1)
-    if not (flags.ignores_environment or overrides_bytecode_environment(argv, index)):
-        return False
-    return not (flags.suppresses_writes or flags.pycache_prefix)
+    for index in interpreter_indices(argv):
+        flags = scan_interpreter_flags(argv, index + 1)
+        if not (
+            flags.ignores_environment or overrides_bytecode_environment(argv, index)
+        ):
+            continue
+        if not (flags.suppresses_writes or flags.pycache_prefix):
+            return True
+    return False
 
 
 def bytecode_conflict(
@@ -309,8 +330,8 @@ def bytecode_conflict(
             "bytecode would land; write the command out as separate arguments"
         )
 
-    index = interpreter_index(argv)
-    if index is None:
+    candidates = interpreter_indices(argv)
+    if not candidates:
         # No interpreter token to read, so nothing here can prove the command
         # safe.  A direct pytest executable behind such a launcher does write
         # bytecode into the protected tree -- confirmed by running one -- and
@@ -323,6 +344,21 @@ def bytecode_conflict(
                 "interpreter with -B"
             )
         return None
+
+    # Every candidate has to be safe.  Picking one and reading its flags means
+    # reading the wrong flags when the pick is wrong, and the failure is a
+    # false accept: the real interpreter's -I goes unread and an honest run
+    # ends as TAMPERED.  Requiring all of them removes the guess.
+    for index in candidates:
+        conflict = _candidate_conflict(argv, index, repo)
+        if conflict is not None:
+            return conflict
+    return None
+
+
+def _candidate_conflict(
+    argv: Sequence[str], index: int, repo: str | os.PathLike[str] | None
+) -> str | None:
     flags = scan_interpreter_flags(argv, index + 1)
     if (
         not (flags.ignores_environment or overrides_bytecode_environment(argv, index))

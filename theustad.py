@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from theustadlib import census, enrollment, hookadapter
-from theustadlib.census import CENSUS_EVIDENCE
+from theustadlib.census import CENSUS_EVIDENCE, CENSUS_UNSUPERVISED
 from theustadlib.chain import AuditChain
 from theustadlib.chain import verify as verify_audit_chain
 from theustadlib.claims import Claim, find_claims
@@ -297,8 +297,12 @@ class TheUstadRunner:
             else:
                 # Either nothing was collected, or this verifier does not write
                 # the report the census reads. Neither is the agent's doing, so
-                # the census stands down instead of blocking every round.
-                self.output("CENSUS unavailable; not supervising this verifier")
+                # the census stands down instead of blocking every round -- but
+                # standing down looks exactly like having nothing to report, so
+                # it is said out loud rather than left to the audit chain.
+                self.output(
+                    CENSUS_UNSUPERVISED.format(detail="no usable baseline report")
+                )
 
         rounds: list[RoundResult] = []
         resume_message: str | None = None

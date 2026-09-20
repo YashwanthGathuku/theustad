@@ -287,6 +287,30 @@ round's passing report. Anything
 that is not pytest, or does not answer the report flag, is left alone rather
 than blocked. `--no-census` disables the census.
 
+### When the census cannot arm
+
+TheUstad reads a verifier that names an interpreter or a pytest executable,
+optionally behind `env`, whose grammar it knows in full. It cannot locate the
+command inside another launcher's options: `uv run --help` alone documents 77
+of them, several of which take a value that can look exactly like the command
+(`uv run --with pytest -- pytest -q`). Carrying an option table per launcher
+per version is not a guarantee TheUstad can keep.
+
+So for those, the census stands down -- and says so, at `SessionStart` and in
+the wrapper's output, because standing down otherwise looks identical to
+having nothing to report:
+
+```text
+THEUSTAD_WARNING the test census did not arm, so a green exit code is the only
+evidence this run has that the acceptance tests ran. Reason: ...
+```
+
+Spell the verifier out to get it supervised, or pass `--no-census` to say the
+absence is intended. The bytecode guard makes the opposite trade for the same
+ambiguity: where several tokens could be the interpreter, **all** of them must
+be safe, so an unreadable launcher cannot hide an isolated Python behind an
+option's operand.
+
 ### What the census does not defend against
 
 The report is written by the verifier, and the verifier executes the source

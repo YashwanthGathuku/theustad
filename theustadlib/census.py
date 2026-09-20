@@ -37,6 +37,15 @@ CENSUS_SKIP = "CENSUS_SKIP"
 
 # Both interfaces say the same thing about the same finding, so they say
 # it from one place rather than two spellings to keep in agreement.
+CENSUS_UNSUPERVISED = (
+    "THEUSTAD_WARNING the test census did not arm, so a green exit code is "
+    "the only evidence this run has that the acceptance tests ran. Reason: "
+    "{detail}. TheUstad can read a verifier that names an interpreter or a "
+    "pytest executable, optionally behind env; it cannot locate the command "
+    "inside another launcher's options. Spell the verifier out, or pass "
+    "--no-census to say this is intended."
+)
+
 CENSUS_EVIDENCE = (
     "The verifier reported success, but its own report does not show the "
     "acceptance tests running. A green exit code earned that way is not "
