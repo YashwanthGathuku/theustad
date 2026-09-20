@@ -468,6 +468,23 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
     )
 
     baseline = census.load_baseline(state_dir)
+    if policy.census and baseline is None:
+        # Either the census never armed, which SessionStart warned about, or
+        # the baseline has gone since. Nothing here can tell those apart --
+        # that needs the state integrity this does not have yet -- but the
+        # round must not simply verify on the exit code with no trace of the
+        # difference.
+        audit.append(
+            round_number=round_number,
+            kind="warning",
+            data={
+                "message": CENSUS_UNSUPERVISED.format(
+                    detail="no baseline is bound to this session at Stop"
+                ),
+                "verifier": list(policy.verifier_argv),
+            },
+        )
+
     report = state_dir / f"census-{round_number}.xml"
     census.clear_report(report)
     verification: VerificationResult | None = None
@@ -546,7 +563,11 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
 
     enrollment.bump_blocks(state_dir)
     evidence = "\n".join(verification.tail) or "Verifier produced no output."
-    if census_result:
+    # Only when the verifier actually reported success: under -x, a collection
+    # error or a timeout the exit code is already the failure, and telling the
+    # agent the verifier passed sends it after the wrong thing.
+    census_decided = bool(census_result) and verification.exit_code == 0
+    if census_decided:
         evidence = (
             CENSUS_EVIDENCE.format(
                 reason=census_result.reason, detail=census_result.detail
@@ -556,7 +577,7 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
         )
     if verdict is HookVerdict.PASS_NO_CLAIM:
         guidance = "State an explicit completion status only when the task is done."
-    elif census_result:
+    elif census_decided:
         guidance = (
             "Make the acceptance tests run again, then state the completion "
             "status."

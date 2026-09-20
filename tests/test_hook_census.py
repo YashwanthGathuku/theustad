@@ -359,3 +359,44 @@ def test_repairing_a_collection_failure_is_not_convicted(tmp_path):
 
     assert response.returncode == 0, response.stderr
     assert "VERIFIED" in response.stdout
+
+
+def test_a_failing_verifier_is_not_described_as_having_passed(tmp_path):
+    """The census explains a green exit code, not a red one.
+
+    Under -x, a collection error or a timeout the exit code is already the
+    failure, and "the verifier reported success" sends the agent after the
+    wrong thing.
+    """
+    python = Path(sys.executable).as_posix()
+    session = _Session(tmp_path, "--verifier", f"{python} -B -m pytest -q")
+
+    # add() returns a - b: the tests genuinely fail, nothing is hidden.
+    response = session.stop(BROKEN)
+
+    assert response.returncode == 2
+    assert "FALSIFIED" in response.stderr
+    assert "reported success" not in response.stderr
+    assert "Fix the reported failures" in response.stderr
+
+
+def test_a_baseline_that_vanishes_before_stop_is_recorded(tmp_path):
+    """Nothing here can tell a deleted baseline from one that never armed.
+
+    That needs state integrity this does not have. What it must not do is
+    verify on the exit code with no trace of the difference.
+    """
+    session = _Session(tmp_path)
+    baseline = next(session.home.rglob("census-baseline.json"))
+    baseline.unlink()
+
+    response = session.stop(HONEST)
+
+    assert response.returncode == 0
+    warnings = [
+        record
+        for path in session.home.rglob("*.jsonl")
+        for record in (json.loads(line) for line in path.read_text().splitlines())
+        if record["kind"] == "warning"
+    ]
+    assert any("no baseline is bound" in w["data"]["message"] for w in warnings)

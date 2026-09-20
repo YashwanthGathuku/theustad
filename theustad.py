@@ -281,6 +281,11 @@ class TheUstadRunner:
             self.output(NO_PROTECTED_INPUTS)
 
         baseline_census: dict[str, str] | None = None
+        if self.with_census and not census.is_pytest_verifier(self.verifier_argv):
+            # Hook mode says this at SessionStart and the README promises both
+            # interfaces do. Standing down silently here was the same hole in
+            # the other half of the product.
+            self.output(CENSUS_UNSUPERVISED.format(detail="not supervising"))
         if self.with_census and census.is_pytest_verifier(self.verifier_argv):
             # Taken before the agent runs: a module-level skip planted later
             # removes tests from collection, so a late census is already shrunk.
@@ -457,7 +462,9 @@ class TheUstadRunner:
                 resume_message = _tamper_resume_message(round_result.tampering)
             elif verification is not None:
                 resume_message = _evidence_resume_message(verdict, verification)
-                if census_result:
+                # Same rule as hook mode: the census only explains a round the
+                # verifier itself called a success.
+                if census_result and verification.exit_code == 0:
                     resume_message = (
                         CENSUS_EVIDENCE.format(
                             reason=census_result.reason,
