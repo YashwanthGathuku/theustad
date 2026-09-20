@@ -25,6 +25,7 @@ from typing import Sequence
 from .verifier import (
     ignores_bytecode_environment,
     interpreter_index,
+    launcher_operands,
     scan_interpreter_flags,
 )
 
@@ -96,10 +97,16 @@ def is_pytest_verifier(argv: Sequence[str]) -> bool:
             return module.split(".")[0] == "pytest"
 
     # A pytest executable, possibly behind a launcher whose own `--` ends its
-    # options rather than pytest's arguments.  A false positive here is
-    # self-correcting: a command that is not pytest writes no report, and the
-    # census stands down at baseline rather than blocking anything.
-    return any(_is_pytest_token(token) for token in argv)
+    # options rather than pytest's arguments.  A launcher operand is skipped
+    # for the same reason as above: `env --chdir pytest -- pytest` names a
+    # directory, not the command.  A false positive here is self-correcting:
+    # a command that is not pytest writes no report, and the census stands
+    # down at baseline rather than blocking anything.
+    operands = launcher_operands(argv)
+    return any(
+        index not in operands and _is_pytest_token(token)
+        for index, token in enumerate(argv)
+    )
 
 
 def canonical_id(module_path: str, name: str) -> str:
@@ -148,8 +155,9 @@ def _pytest_index(argv: Sequence[str]) -> int:
     index = interpreter_index(argv)
     if index is not None and scan_interpreter_flags(argv, index + 1).module:
         return index
+    operands = launcher_operands(argv)
     for position, token in enumerate(argv):
-        if _is_pytest_token(token):
+        if position not in operands and _is_pytest_token(token):
             return position
     return 0
 

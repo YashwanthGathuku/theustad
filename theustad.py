@@ -288,6 +288,9 @@ class TheUstadRunner:
                 self.timeout,
             )
             collected = census.parse_report(probe_report)
+            # Not left behind: a round's report only has to look like this
+            # one, and the verifier process can reach this directory.
+            census.clear_report(probe_report)
             if collected:
                 baseline_census = collected
                 self.output(f"CENSUS {len(collected)} acceptance tests")

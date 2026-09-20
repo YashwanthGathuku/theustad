@@ -287,6 +287,29 @@ round's passing report. Anything
 that is not pytest, or does not answer the report flag, is left alone rather
 than blocked. `--no-census` disables the census.
 
+### What the census does not defend against
+
+The report is written by the verifier, and the verifier executes the source
+the agent edits. That source therefore runs with TheUstad's own permissions
+and can read the report path out of its own `sys.argv`, so it can write
+whatever report it likes and exit 0. Confirmed by doing it: a module that
+forges a passing report and calls `os._exit(0)` reaches `VERIFIED`.
+
+No amount of path hardening closes this. An unguessable filename is still in
+argv; a report the parent pre-fills is still overwritten by pytest. The same
+reasoning covers the rest of the state directory, which that process can also
+reach -- the manifest, the policy, the block count and the audit log are all
+writable by it.
+
+So the census is a check on what a verifier *did*, not a defence against a
+verifier written to lie about it. It closes the cases where the tests stop
+running as a side effect of an edit -- which is what an agent taking a
+shortcut actually produces -- and it raises the cost of the rest from "return
+0" to "forge the evidence". Code written specifically against TheUstad's own
+mechanism is outside what this can decide, and needs the verifier to run
+where it cannot reach TheUstad's state: a separate user, a container, or a
+read-only mount. TheUstad does not arrange that for you today.
+
 The census applies to both interfaces. In hook mode the two halves land in
 different processes, so `SessionStart` takes the baseline and saves it beside
 the manifest, and `Stop` compares against it before deciding the verdict --

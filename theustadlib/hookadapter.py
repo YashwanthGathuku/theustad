@@ -332,6 +332,10 @@ def _take_census_baseline(
             policy.timeout,
         )
         collected = census.parse_report(report)
+        # The baseline report is a ready-made forgery: a round's report only
+        # has to look like it, and the verifier process can read and write
+        # this directory.  Nothing needs it after this point.
+        census.clear_report(report)
     except Exception as error:  # a probe failure must not block the session
         collected = None
         detail = repr(error)

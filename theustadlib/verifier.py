@@ -24,8 +24,19 @@ _MODULE_OPTION = "m"
 BYTECODE_VARIABLE = "PYTHONDONTWRITEBYTECODE"
 # ``env`` treats a bare ``-`` as ``-i``; its --help documents both.
 _ENV_IGNORE = frozenset({"-i", "--ignore-environment", "-"})
-_UNSET_LONG = "--unset"
-_SPLIT_LONG = "--split-string"
+# The env options that consume a value, short spelling to long and to the
+# action each one means.  These are the only three: the --block-signal
+# family takes an optional argument, which a long option can only carry
+# with "=", so none of them ever consumes a separate token.
+_VALUE_LAUNCHER_OPTIONS = {
+    "u": ("--unset", "unset"),
+    "C": ("--chdir", "chdir"),
+    "S": ("--split-string", "split"),
+}
+_LONG_LAUNCHER_OPTIONS = {
+    long: (letter, kind)
+    for letter, (long, kind) in _VALUE_LAUNCHER_OPTIONS.items()
+}
 # The only CPython long option that takes a separate value; skipping it
 # without its value would end the scan on the value token.
 _VALUE_LONG_OPTIONS = frozenset({"--check-hash-based-pycs"})
@@ -70,17 +81,19 @@ def _launcher_actions(
     index = 0
     while index < before:
         token = argv[index]
+        name, separator, joined = token.partition("=")
         if token in _ENV_IGNORE:
             yield ("ignore", "", None)
-        elif token == _SPLIT_LONG or token.startswith(f"{_SPLIT_LONG}="):
-            yield ("split", "", None)
-        elif token.startswith(f"{_UNSET_LONG}="):
-            yield ("unset", token[len(_UNSET_LONG) + 1 :], None)
-        elif token == _UNSET_LONG:
+        elif separator and name in _LONG_LAUNCHER_OPTIONS:
+            yield (_LONG_LAUNCHER_OPTIONS[name][1], joined, None)
+        elif token in _LONG_LAUNCHER_OPTIONS:
             index += 1
-            yield ("unset", argv[index] if index < before else "", index)
+            yield (
+                _LONG_LAUNCHER_OPTIONS[token][1],
+                argv[index] if index < before else "",
+                index,
+            )
         elif token.startswith("--") or not token.startswith("-"):
-            name, separator, _ = token.partition("=")
             if separator:
                 yield ("assign", name, None)
         else:
@@ -88,11 +101,8 @@ def _launcher_actions(
                 if letter == "i":
                     yield ("ignore", "", None)
                     continue
-                if letter == "S":
-                    yield ("split", "", None)
-                    break
-                if letter == "u":
-                    # -u takes a value: the rest of the cluster, or the
+                if letter in _VALUE_LAUNCHER_OPTIONS:
+                    # These take a value: the rest of the cluster, or the
                     # next token, and either way the cluster ends here.
                     value = token[position + 2 :]
                     consumed = None
@@ -100,9 +110,26 @@ def _launcher_actions(
                         index += 1
                         value = argv[index]
                         consumed = index
-                    yield ("unset", value, consumed)
+                    yield (_VALUE_LAUNCHER_OPTIONS[letter][1], value, consumed)
                     break
         index += 1
+
+
+def launcher_operands(argv: Sequence[str]) -> frozenset[int]:
+    """Indices holding a launcher option's value rather than a command.
+
+    ``env -u python python -m pytest`` unsets a variable that happens to be
+    named ``python``, and ``env --chdir pytest -- pytest -q`` changes into a
+    directory that happens to be named ``pytest``.  Neither operand is the
+    command being launched, and reading one as the command stops the search
+    before the real thing -- hiding an interpreter's flags in the first case
+    and pytest's own separator in the second.
+    """
+    return frozenset(
+        consumed
+        for _, _, consumed in _launcher_actions(argv, len(argv))
+        if consumed is not None
+    )
 
 
 def interpreter_index(argv: Sequence[str]) -> int | None:
@@ -113,15 +140,9 @@ def interpreter_index(argv: Sequence[str]) -> int | None:
     argv[0] would skip the check entirely for every one of them.
 
     A launcher option's operand is not the command it launches, even when it
-    is spelled like one: ``env -u python python -I -m pytest`` unsets a
-    variable named ``python``, and reading that operand as the interpreter
-    hides the real one and every flag it carries.
+    is spelled like one -- see ``launcher_operands``.
     """
-    operands = {
-        consumed
-        for _, _, consumed in _launcher_actions(argv, len(argv))
-        if consumed is not None
-    }
+    operands = launcher_operands(argv)
     for index, token in enumerate(argv):
         if index not in operands and _is_python_interpreter(token):
             return index

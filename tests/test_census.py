@@ -426,3 +426,25 @@ def test_a_test_path_named_like_an_interpreter_does_not_move_the_separator(build
     separator = built.index("--")
     assert built[separator:] == ["--", "tests/python"]
     assert "--junit-xml=/tmp/report.xml" in built[:separator]
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["env", "--chdir", "pytest", "--", "pytest", "-q", "../tests"],
+        ["env", "-C", "pytest", "--", "pytest", "-q"],
+        ["env", "-Cpytest", "--", "pytest", "-q"],
+        ["env", "--chdir=pytest", "--", "pytest", "-q"],
+    ],
+)
+def test_a_directory_named_pytest_is_not_the_pytest_command(argv):
+    """`env --chdir pytest` changes into a directory that happens to be named
+    pytest; taking it for the command puts the reporting flag before env's own
+    separator, where env rejects it and no report is written at all."""
+    assert census.is_pytest_verifier(argv)
+
+    built = census.report_argv(argv, "/tmp/report.xml")
+
+    assert built[: argv.index("--")] == argv[: argv.index("--")], (
+        "an option was inserted into the launcher's own arguments"
+    )

@@ -260,3 +260,32 @@ def test_the_same_operand_still_allows_a_safe_interpreter():
     python = Path(sys.executable).as_posix()
 
     assert parse_command(f"env -u python {python} -I -B -m pytest -q")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "env -C python {python} -I -m pytest -q",
+        "env --chdir python {python} -I -m pytest -q",
+        "env -Cpython {python} -I -m pytest -q",
+    ],
+)
+def test_a_chdir_operand_named_like_python_does_not_hide_the_interpreter(command):
+    """-C takes a directory, and a directory may be named python too."""
+    python = Path(sys.executable).as_posix()
+
+    with pytest.raises(ValueError, match="isolated Python"):
+        parse_command(command.format(python=python))
+
+
+def test_every_env_option_that_takes_a_value_is_known():
+    """The launcher walk has to agree with env about which options consume one.
+
+    An option whose operand is not consumed leaves that operand readable as a
+    command, which is how `-u python` and `--chdir pytest` each hid the real
+    one. env documents exactly three; the --block-signal family takes an
+    optional argument, which a long option can only carry with `=`.
+    """
+    from theustadlib import verifier
+
+    assert set(verifier._VALUE_LAUNCHER_OPTIONS) == {"u", "C", "S"}
