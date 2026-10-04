@@ -467,12 +467,10 @@ renamed `VERIFIED`.
 
 ## License and attribution
 
-TheUstad is licensed under [AGPL-3.0-or-later](LICENSE). Preserve the license,
-copyright, source, and attribution notices described in [NOTICE](NOTICE) when
-redistributing modified copies. If you run a modified version as a network
-service, GNU AGPL section 13 requires offering its Corresponding Source to users
-who interact with it remotely. Private use of an unmodified copy does not
-require a public endorsement or credit post.
+TheUstad is licensed under the [MIT License](LICENSE). Preserve the copyright
+notice and the attribution in [NOTICE](NOTICE) when redistributing copies.
+
+    TheUstad 1.0 - originally developed by Yashwanth Gathuku
 
 ## OpenAI Build Week
 

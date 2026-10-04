@@ -43,7 +43,7 @@ def test_manifest_identifies_theustad_and_only_bundles_skills():
     assert manifest["name"] == "theustad"
     assert re.fullmatch(r"1\.0\.0\+codex\.[a-z0-9-]+", manifest["version"])
     assert manifest["skills"] == "./skills/"
-    assert manifest["license"] == "AGPL-3.0-or-later"
+    assert manifest["license"] == "MIT"
     assert {"hooks", "mcpServers", "apps"}.isdisjoint(manifest)
 
 
@@ -114,18 +114,20 @@ def test_notice_identifies_theustad_and_preserves_required_attribution():
     for required in (
         "TheUstad 1.0 - originally developed by Yashwanth Gathuku",
         "https://github.com/YashwanthGathuku/theustad",
-        "GNU AGPLv3 section 7(b)",
-        "section 13",
+        "MIT License",
     ):
         assert required in notice
+    assert "GNU AGPLv3" not in notice
+    assert "section 13" not in notice
 
 
-def test_license_is_gnu_agpl_v3_or_later_text():
+def test_license_is_mit_text():
     license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
 
-    assert "GNU AFFERO GENERAL PUBLIC LICENSE" in license_text
-    assert "Version 3, 19 November 2007" in license_text
-    assert "13. Remote Network Interaction; Use with the GNU General Public License." in license_text
+    assert "MIT License" in license_text
+    assert "Copyright (c) 2026 Yashwanth Gathuku" in license_text
+    assert "Permission is hereby granted, free of charge" in license_text
+    assert "GNU AFFERO GENERAL PUBLIC LICENSE" not in license_text
 
 
 def test_official_plugin_validator_accepts_package():
@@ -184,8 +186,8 @@ def test_copy_plugin_uses_allowlist_and_excludes_repo_and_cache_content(tmp_path
     assert (destination / "LICENSE").is_file()
     assert (destination / "NOTICE").is_file()
     notice = (destination / "NOTICE").read_text(encoding="utf-8")
-    assert "GNU AGPLv3 section 7(b)" in notice
-    assert "section 13" in notice
+    assert "MIT License" in notice
+    assert "GNU AGPLv3" not in notice
     assert "originally developed by Yashwanth Gathuku" in notice
     assert not (destination / ".git").exists()
     assert not (destination / "tests").exists()
@@ -458,7 +460,6 @@ def test_readme_leads_with_verified_problem_and_single_core_architecture():
     ):
         assert required in readme
 
-    assert "MIT" not in readme
 
 
 def test_theustad_demo_documents_both_interfaces_and_honesty_boundaries():
