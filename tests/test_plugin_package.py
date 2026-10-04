@@ -130,6 +130,27 @@ def test_license_is_mit_text():
     assert "GNU AFFERO GENERAL PUBLIC LICENSE" not in license_text
 
 
+def test_readme_license_section_states_only_the_current_license():
+    """The license statement itself must be asserted, not a sentence about history.
+
+    The README also recounts an earlier AGPL release validation, and that
+    paragraph alone satisfied every `AGPL-3.0-or-later` assertion the relicense
+    left behind -- so the statement of the project's own license went unchecked.
+    Scoping to the section keeps the historical record legal and the claim
+    checked.
+    """
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    heading = "## License and attribution"
+    assert heading in readme
+    section = readme.split(heading, 1)[1].split("\n## ", 1)[0]
+
+    assert "[MIT License](LICENSE)" in section
+    assert "TheUstad 1.0 - originally developed by Yashwanth Gathuku" in section
+    for retired in ("AGPL", "Affero", "GNU General Public License", "section 13"):
+        assert retired not in section
+
+
 def test_official_plugin_validator_accepts_package():
     configured = os.environ.get("THEUSTAD_PLUGIN_VALIDATOR")
     validator = (
@@ -435,7 +456,7 @@ def test_readme_documents_complete_plugin_workflow_and_platform_boundary():
         "Claude Code hook (experimental)",
         "docs/demo/README.md",
         "docs/PLUGIN_GUIDE.md",
-        "AGPL-3.0-or-later",
+        "[MIT License](LICENSE)",
     ):
         assert required in readme
 
@@ -456,10 +477,9 @@ def test_readme_leads_with_verified_problem_and_single_core_architecture():
         "allowlisted copy",
         "TheUstad succeeds when completion becomes falsifiable and reproducible",
         "explicit custom verifier",
-        "AGPL-3.0-or-later",
+        "[MIT License](LICENSE)",
     ):
         assert required in readme
-
 
 
 def test_theustad_demo_documents_both_interfaces_and_honesty_boundaries():
