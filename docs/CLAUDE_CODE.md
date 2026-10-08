@@ -54,7 +54,11 @@ keep the clone where it is. If you move it, run `install-hooks` again from
 the new location.
 
 If both the plugin and settings hooks are installed, the plugin's copy stands
-down and the settings hooks do the work. One session is never verified twice.
+down and the settings hooks do the work, so one session is never verified
+twice. It stands down only for settings hooks that can start and that run
+TheUstad from absolute paths outside the enrolled repository. A relative path
+resolves inside the repository Claude is editing, so the plugin does not
+trust one.
 
 ## 2. Enroll a repository
 
@@ -89,9 +93,15 @@ Then start a **new** Claude Code session in the repository and run `/hooks`
 to confirm both hooks are listed. A policy is copied into each session when it
 starts, so enrolling or re-enrolling never changes a session already running.
 
-`status --repo PATH` shows the enrolled policy and `CLAUDE_HOOKS
-installed | not-installed | stale`. `unenroll --repo PATH --yes` removes the
-policy.
+`status --repo PATH` shows the enrolled policy and one `CLAUDE_HOOKS` state:
+
+- `installed`
+- `not-installed`
+- `stale`: a handler cannot start, or names a relative path
+- `unsafe`: a handler runs TheUstad from inside that repository
+
+Run `install-hooks` again, from a clone outside the repository, to fix either
+of the last two. `unenroll --repo PATH --yes` removes the policy.
 
 ## 3. What a session looks like
 

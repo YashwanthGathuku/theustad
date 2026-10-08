@@ -509,3 +509,41 @@ def test_a_later_chdir_back_into_the_repository_is_not_read_as_leaving_it(tmp_pa
             f"env -C .. -C . {python} -I -X pycache_prefix=tests/cache -m pytest",
             repo=repo,
         )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "true env -i",
+        "make env -i",
+        "true env -u PYTHONDONTWRITEBYTECODE",
+        "env -u PYTHONDONTWRITEBYTECODE env",
+    ],
+)
+def test_an_env_that_launches_nothing_changes_nothing(command):
+    """With no command after it, env starts nothing whose bytecode could land."""
+    assert parse_command(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "uv run env -u PYTHONDONTWRITEBYTECODE {python} -m pytest -q",
+        "nice env -i {python} -m pytest -q",
+        "true env -i pytest -q",
+    ],
+)
+def test_an_env_after_another_program_is_read_as_env_when_it_launches_something(
+    command,
+):
+    """A deliberate over-refusal, named here so it is a choice, not a gap.
+
+    `uv run env -u NAME python` strips the variable before Python starts, and
+    nothing in the argv tells it apart from `true env -i pytest`, where env is
+    only an argument. Reading the second as data would mean reading the first
+    as data too, and accepting a verifier whose honest run ends as TAMPERED.
+    """
+    python = Path(sys.executable).as_posix()
+
+    with pytest.raises(ValueError, match="PYTHONDONTWRITEBYTECODE"):
+        parse_command(command.format(python=python))

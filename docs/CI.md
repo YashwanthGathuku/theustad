@@ -69,7 +69,7 @@ Action inputs, all optional:
 
 | Input | Default | Purpose |
 |---|---|---|
-| `base` | the pull request's base commit | Branch or commit to compare against |
+| `base` | the pull request's base commit | Branch or commit to compare against on other events; ignored on a pull request |
 | `verifier` | `.theustad.json`, then isolated pytest | Test command, run without a shell |
 | `protect-add` | none | Extra protected patterns, space-separated |
 | `census` | `true` | `false` skips the census and its run on the base commit |
@@ -138,7 +138,13 @@ that runs TheUstad is still part of the pull request, though, and on
 `pull_request` events GitHub runs the pull request's own copy of it.
 
 - An edit to `.github/workflows/**` is reported as `TAMPERED` while the check
-  still runs.
+  still runs. On a pull request the action compares against the base commit
+  GitHub reports, ignoring the `base` input, and requires the checkout to
+  contain the pull request's head commit, so the workflow cannot point either
+  side of the comparison somewhere else.
+- That holds only while the pull request's copy still runs this action. One
+  that replaces the step, or points `uses:` somewhere else, decides its own
+  result, which is why `.github/` belongs under `CODEOWNERS` below.
 - A pull request that **deletes** the step never runs TheUstad at all. A
   required status check then never reports, so the pull request cannot merge.
   That is why the check must be required.

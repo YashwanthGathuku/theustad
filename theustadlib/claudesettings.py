@@ -100,12 +100,33 @@ def effective_timeout(handler: Mapping[str, Any]) -> float:
     return float(value)
 
 
-def runnable(handler: Mapping[str, Any]) -> bool:
-    """Whether a TheUstad settings handler can actually start.
+def _inside(path: str, directory: str) -> bool:
+    """Whether ``path``, or what it links to, lies under ``directory``."""
+    root = Path(os.path.realpath(directory))
+    for candidate in {os.path.abspath(path), os.path.realpath(path)}:
+        try:
+            Path(candidate).relative_to(root)
+        except ValueError:
+            continue
+        return True
+    return False
 
-    One that cannot is worse than none: a missing interpreter exits 127,
-    which Claude Code treats as a non-blocking failure, so the stop goes
+
+def runnable(
+    handler: Mapping[str, Any], repository: str | os.PathLike[str] | None = None
+) -> bool:
+    """Whether a TheUstad settings handler will start, and start TheUstad.
+
+    One that cannot start is worse than none: a missing interpreter exits
+    127, which Claude Code treats as a non-blocking failure, so the stop goes
     through unverified.
+
+    It also has to run code the repository under test cannot supply. Claude
+    Code runs hooks in that repository, so a relative ``theustad.py`` -- or a
+    relative interpreter, or a ``PATH`` entry such as ``.`` -- names whatever
+    file the repository puts there, and a stub that exits 0 then answers for
+    TheUstad. With ``repository`` given, a handler running from inside it
+    does not count either: the agent being verified can edit that file.
     """
     try:
         argv = shlex.split(handler["command"])
@@ -113,13 +134,24 @@ def runnable(handler: Mapping[str, Any]) -> bool:
         return False
     if len(argv) < 5:
         return False
-    interpreter = argv[0] if os.path.isabs(argv[0]) else shutil.which(argv[0])
-    return (
-        bool(interpreter)
-        and os.path.isfile(interpreter)
+    interpreter, cli = argv[0], argv[-4]
+    if not os.path.isabs(interpreter):
+        if os.path.dirname(interpreter):
+            return False
+        interpreter = shutil.which(interpreter) or ""
+    if not (os.path.isabs(interpreter) and os.path.isabs(cli)):
+        return False
+    if not (
+        os.path.isfile(interpreter)
         and os.access(interpreter, os.X_OK)
-        and Path(argv[-4]).is_file()
-    )
+        and os.path.isfile(cli)
+    ):
+        return False
+    if repository is not None and (
+        _inside(interpreter, repository) or _inside(cli, repository)
+    ):
+        return False
+    return True
 
 
 def installed_handlers(settings: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -248,13 +280,18 @@ def write_settings(path: Path, settings: Mapping[str, Any]) -> Path | None:
     return backup
 
 
-def covers(event: str | None, environ: Mapping[str, str] | None = None) -> bool:
+def covers(
+    event: str | None,
+    environ: Mapping[str, str] | None = None,
+    repository: str | os.PathLike[str] | None = None,
+) -> bool:
     """Whether user settings already run TheUstad for ``event``.
 
     The Claude Code plugin ships the same hooks. When both are present the
     plugin's copy stands down, so one session is never handled twice. A file
-    that cannot be read, or a handler whose interpreter or CLI is gone, covers
-    nothing: Claude Code cannot run hooks from either, and the plugin then has
+    that cannot be read, or a handler that is not ``runnable`` for
+    ``repository``, covers nothing: Claude Code cannot run hooks from the
+    first, the second may not run TheUstad at all, and the plugin then has
     to.
     """
     if event not in HOOK_EVENTS:
@@ -263,6 +300,9 @@ def covers(event: str | None, environ: Mapping[str, str] | None = None) -> bool:
         settings = read_settings(user_settings_path(environ))
     except (OSError, ValueError, UnicodeDecodeError):
         return False
-    # Defer only to a handler that can start; a stale one would leave the
-    # session with no enforcement at all.
-    return any(runnable(item) for item in installed_handlers(settings).get(event, []))
+    # Defer only to a handler that can start, from code the repository cannot
+    # replace; anything less leaves the session with no enforcement at all.
+    return any(
+        runnable(item, repository)
+        for item in installed_handlers(settings).get(event, [])
+    )

@@ -9,7 +9,9 @@ branding:
 
 inputs:
   base:
-    description: Base branch or commit. Defaults to the pull request's base commit.
+    description: >-
+      Base branch or commit, for events that are not pull requests. On a pull
+      request the pull request's own base commit is always used.
     required: false
     default: ''
   verifier:
@@ -52,7 +54,9 @@ runs:
     - id: check
       shell: bash
       env:
-        THEUSTAD_BASE: ${{ inputs.base || github.event.pull_request.base.sha }}
+        THEUSTAD_BASE: ${{ inputs.base }}
+        THEUSTAD_EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+        THEUSTAD_EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
         THEUSTAD_VERIFIER: ${{ inputs.verifier }}
         THEUSTAD_PROTECT_ADD: ${{ inputs.protect-add }}
         THEUSTAD_CENSUS: ${{ inputs.census }}

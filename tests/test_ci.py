@@ -445,6 +445,48 @@ def test_action_fails_a_change_that_edits_its_tests(repo, tmp_path):
     assert outputs["verdict"] == "TAMPERED"
 
 
+def _pull_request_event(repo):
+    """What GitHub reports for this pull request, which its workflow cannot set."""
+    return {
+        "THEUSTAD_EVENT_BASE": git(repo, "rev-parse", "main"),
+        "THEUSTAD_EVENT_HEAD": git(repo, "rev-parse", "HEAD"),
+    }
+
+
+@posix_only
+@pytest.mark.parametrize("named_base", ["HEAD", "agent", ""])
+def test_a_pull_request_cannot_choose_its_own_baseline(repo, tmp_path, named_base):
+    # GitHub runs the pull request's own copy of the workflow, so `base:
+    # HEAD` there would make the change its own baseline: nothing would
+    # differ from it, and weakened tests would verify.
+    (repo / "tests" / "test_parser.py").write_text("def test_ok():\n    pass\n", encoding="utf-8")
+    commit_all(repo, "weaken")
+
+    completed, outputs, _ = run_action(
+        repo, tmp_path, THEUSTAD_BASE=named_base, **_pull_request_event(repo)
+    )
+
+    assert outputs["verdict"] == "TAMPERED", completed.stdout + completed.stderr
+    assert completed.returncode == 1
+    assert ("ignoring the 'base' input" in completed.stderr) == bool(named_base)
+
+
+@posix_only
+def test_a_pull_request_check_must_check_out_the_pull_request(repo, tmp_path):
+    # A workflow that checks out the base branch instead would judge code the
+    # pull request does not contain, and pass it.
+    (repo / "tests" / "test_parser.py").write_text("def test_ok():\n    pass\n", encoding="utf-8")
+    commit_all(repo, "weaken")
+    event = _pull_request_event(repo)
+    git(repo, "switch", "-q", "main")
+
+    completed, outputs, _ = run_action(repo, tmp_path, **event)
+
+    assert completed.returncode == 2
+    assert "does not contain the pull request's head commit" in completed.stderr
+    assert outputs == {}
+
+
 @posix_only
 def test_action_requires_a_base(repo, tmp_path):
     completed, outputs, _ = run_action(repo, tmp_path, THEUSTAD_BASE="")
@@ -496,6 +538,10 @@ def test_action_definition_wires_every_input_the_script_reads():
         for part in script.split("${")[1:]
         if part.startswith("THEUSTAD_")
     )
+    from_event = {
+        "THEUSTAD_EVENT_BASE": "github.event.pull_request.base.sha",
+        "THEUSTAD_EVENT_HEAD": "github.event.pull_request.head.sha",
+    }
     assert read_by_script == {
         "THEUSTAD_BASE",
         "THEUSTAD_PYTHON",
@@ -503,8 +549,13 @@ def test_action_definition_wires_every_input_the_script_reads():
         "THEUSTAD_PROTECT_ADD",
         "THEUSTAD_CENSUS",
         "THEUSTAD_TIMEOUT",
+        *from_event,
     }
-    for name in read_by_script:
+    for name in read_by_script - set(from_event):
         assert f"        {name}: ${{{{ inputs." in definition
+    # What to compare on a pull request comes from GitHub's event alone,
+    # never from an input the pull request's own workflow can set.
+    for name, expression in from_event.items():
+        assert f"        {name}: ${{{{ {expression} }}}}\n" in definition
     # Inputs must reach the script through env, never through the run line.
     assert "${{ inputs." not in definition.split("run:", 1)[1]

@@ -354,3 +354,88 @@ def test_an_installed_handler_without_a_usable_timeout_counts_as_the_host_defaul
     assert enrollment.load_policy(repo) is None
     # A deadline the default does hold is accepted.
     assert theustad.main(["enroll", "--repo", str(repo), "--timeout", "300"]) == 0
+
+
+def _stub(path, text):
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "relative theustad.py",
+        pytest.param(
+            "relative interpreter",
+            marks=pytest.mark.skipif(os.name != "posix", reason="POSIX executable stub"),
+        ),
+        pytest.param(
+            "interpreter found through PATH=.",
+            marks=pytest.mark.skipif(os.name != "posix", reason="POSIX executable stub"),
+        ),
+    ],
+)
+def test_plugin_does_not_defer_to_a_handler_the_repository_supplies(
+    tmp_path, monkeypatch, capsys, spelling
+):
+    # Claude Code runs hooks in the repository, so a relative path names
+    # whatever the repository puts there -- here a stub that exits 0.
+    monkeypatch.setenv("THEUSTAD_HOME", str(tmp_path / "external"))
+    repo = _repo(tmp_path)
+    _stub(repo / "theustad.py", "import sys\nsys.exit(0)\n")
+    _stub(repo / "python3", "#!/bin/sh\nexit 0\n")
+    if spelling == "relative theustad.py":
+        command = [sys.executable, "theustad.py", "hook", "claude", "Stop"]
+    elif spelling == "relative interpreter":
+        command = ["./python3", theustad.__file__, "hook", "claude", "Stop"]
+    else:
+        command = ["python3", theustad.__file__, "hook", "claude", "Stop"]
+        monkeypatch.setenv("PATH", ".")
+    _write_handler(command, timeout=3600)
+    theustad.main(["enroll", "--repo", str(repo), "--no-census"])
+    capsys.readouterr()
+    monkeypatch.chdir(repo)
+
+    assert claudesettings.covers("Stop") is False
+    assert _plugin_hook("Stop", _stop_payload(repo), monkeypatch) == hookadapter.BLOCK
+    assert "no protected-input baseline" in capsys.readouterr().err
+
+    theustad.main(["status", "--repo", str(repo)])
+    assert "CLAUDE_HOOKS stale" in capsys.readouterr().out
+
+
+def test_plugin_does_not_defer_to_a_handler_inside_the_enrolled_repository(
+    tmp_path, monkeypatch, capsys
+):
+    # An absolute path is no better when it points into the repository the
+    # agent is editing: the agent can replace that theustad.py too.
+    monkeypatch.setenv("THEUSTAD_HOME", str(tmp_path / "external"))
+    repo = _repo(tmp_path)
+    (repo / "tools").mkdir()
+    vendored = _stub(repo / "tools" / "theustad.py", "")
+    _write_handler([sys.executable, str(vendored), "hook", "claude", "Stop"], timeout=3600)
+    theustad.main(["enroll", "--repo", str(repo), "--no-census"])
+    capsys.readouterr()
+
+    assert claudesettings.covers("Stop") is True
+    assert claudesettings.covers("Stop", repository=repo) is False
+    assert _plugin_hook("Stop", _stop_payload(repo), monkeypatch) == hookadapter.BLOCK
+    assert "no protected-input baseline" in capsys.readouterr().err
+
+    theustad.main(["status", "--repo", str(repo)])
+    assert "CLAUDE_HOOKS unsafe" in capsys.readouterr().out
+
+
+def test_plugin_still_defers_to_a_handler_outside_the_repository(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("THEUSTAD_HOME", str(tmp_path / "external"))
+    repo = _repo(tmp_path)
+    theustad.main(["enroll", "--repo", str(repo), "--no-census"])
+    theustad.main(["install-hooks"])
+    capsys.readouterr()
+    monkeypatch.chdir(repo)
+
+    assert claudesettings.covers("Stop", repository=repo) is True
+    assert _plugin_hook("Stop", _stop_payload(repo), monkeypatch) == hookadapter.ALLOW

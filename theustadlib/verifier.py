@@ -99,6 +99,26 @@ def _env_long_option(name: str) -> str | None:
 def _launcher_actions(
     argv: Sequence[str], before: int
 ) -> "Iterator[tuple[str, str, int | None]]":
+    """What an ``env``-style launcher does before Python starts, if anything.
+
+    Where ``env`` appears after another program, nothing here can tell
+    ``uv run env -i python`` from ``true env -i python``, so both are read as
+    env: misreading the first accepts a command that strips the variable.
+    An env that launches no command at all, as in ``true env -i``, changes
+    nothing, so it reports nothing.  ``-S`` packs a command into its
+    argument, so it counts as launching one.
+    """
+    actions = list(_env_walk(argv, before))
+    launches = before < len(argv) or any(
+        kind in ("command", "split") for kind, _, _ in actions
+    )
+    if launches:
+        yield from (action for action in actions if action[0] != "command")
+
+
+def _env_walk(
+    argv: Sequence[str], before: int
+) -> "Iterator[tuple[str, str, int | None]]":
     """Normalise what an ``env``-style launcher does before Python starts.
 
     ``env`` accepts each option in several spellings -- clustered
@@ -168,6 +188,7 @@ def _launcher_actions(
             yield ("exec", "", None)
             options = True
         else:
+            yield ("command", token, None)
             break  # env's COMMAND, and its arguments follow
         index += 1
 

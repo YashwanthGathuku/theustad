@@ -662,6 +662,24 @@ def _forbidden_argument(argv: Sequence[str]) -> str | None:
     return None
 
 
+def _plugin_defers(payload: dict[str, Any]) -> bool:
+    """Whether the plugin's copy should leave this event to settings hooks.
+
+    Only to a handler outside the enrolled repository: one inside it runs
+    whatever the agent under verification left there. When the repository
+    cannot be told, the plugin acts rather than defers.
+    """
+    cwd = payload.get("cwd")
+    repository = None
+    if isinstance(cwd, str) and cwd:
+        try:
+            policy = enrollment.find_policy(cwd)
+        except Exception:
+            return False
+        repository = policy.repo if policy is not None else None
+    return claudesettings.covers(payload.get("hook_event_name"), repository=repository)
+
+
 def main(argv: Sequence[str]) -> int:
     """Read one event from stdin. Policy arguments are always forbidden."""
     forbidden = _forbidden_argument(argv)
@@ -687,7 +705,7 @@ def main(argv: Sequence[str]) -> int:
             # hooks, and Claude Code runs a plugin's copy separately. Two
             # handlers for one session would verify twice and race on its
             # audit chain, so the plugin's copy defers to an installed one.
-            if claudesettings.covers(payload.get("hook_event_name")):
+            if _plugin_defers(payload):
                 return ALLOW
             vendor = "claude"
         response = dispatch(vendor, payload, expected_event=expected_event)

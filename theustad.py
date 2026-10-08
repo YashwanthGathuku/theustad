@@ -944,13 +944,16 @@ def _status(args: argparse.Namespace) -> int:
     elif installed is None:
         _console_output(f"CLAUDE_HOOKS unreadable {settings_path}")
     elif all(event in installed for event in claudesettings.HOOK_EVENTS):
-        stale = any(
-            not claudesettings.runnable(installed_handler)
-            for handlers in installed.values()
-            for installed_handler in handlers
-        )
-        state = "stale" if stale else "installed"
-        _console_output(f"CLAUDE_HOOKS {state} {settings_path}")
+        handlers = [item for group in installed.values() for item in group]
+        if not all(claudesettings.runnable(item) for item in handlers):
+            _console_output(f"CLAUDE_HOOKS stale {settings_path}")
+        elif not all(claudesettings.runnable(item, policy.repo) for item in handlers):
+            _console_output(
+                f"CLAUDE_HOOKS unsafe {settings_path} (they run TheUstad from "
+                f"inside {policy.repo}; install them from a clone outside it)"
+            )
+        else:
+            _console_output(f"CLAUDE_HOOKS installed {settings_path}")
     else:
         _console_output(f"CLAUDE_HOOKS not-installed {settings_path}")
     return 0
