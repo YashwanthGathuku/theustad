@@ -325,6 +325,57 @@ def test_the_parser_agrees_with_cpython_on_every_flag_spelling(flags, tmp_path):
     )
 
 
+# Spellings where the program itself is in the argv. CPython stops reading
+# options at -c, attached or clustered, and at a bare - (the program comes
+# from stdin): the program's own letters, and anything after it, are not
+# flags. Each program below contains a B and an I to be misread.
+_PROGRAM_SPELLINGS = [
+    (["-cPROGRAM"], None),
+    (["-E", "-cPROGRAM"], None),
+    (["-EcPROGRAM"], None),
+    (["-B", "-EcPROGRAM"], None),
+    (["-E", "-", "-B"], "PROGRAM"),
+    (["-E", "-B", "-"], "PROGRAM"),
+]
+
+
+@pytest.mark.parametrize(
+    ("argv", "stdin"),
+    _PROGRAM_SPELLINGS,
+    ids=lambda value: " ".join(value) if isinstance(value, list) else str(bool(value)),
+)
+def test_the_parser_agrees_with_cpython_where_the_program_is_in_the_argv(
+    argv, stdin, tmp_path
+):
+    from theustadlib.verifier import ignores_bytecode_environment
+
+    protected = tmp_path / "protected"
+    protected.mkdir()
+    (protected / "probe_mod.py").write_text("VALUE = 1\n", encoding="utf-8")
+    program = (
+        f"B = I = 1; import sys; sys.path.insert(0, {str(protected)!r}); "
+        "import probe_mod"
+    )
+    resolved = [arg.replace("PROGRAM", program) for arg in argv]
+    result = subprocess.run(
+        [sys.executable, *resolved],
+        input=program if stdin else None,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert result.returncode == 0, (argv, result.stderr)
+
+    wrote = (protected / "__pycache__").exists()
+    refused = ignores_bytecode_environment([sys.executable, *resolved])
+
+    assert refused == wrote, (
+        f"{' '.join(argv)}: parser says {'refuse' if refused else 'accept'} but "
+        f"CPython {'wrote' if wrote else 'did not write'} bytecode beside the source"
+    )
+
+
 @pytest.mark.parametrize(
     "prefix",
     ["tests/cache", "cache", "./tests/cache", "tests/../tests/cache"],

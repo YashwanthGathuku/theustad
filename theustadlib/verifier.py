@@ -323,8 +323,11 @@ def scan_interpreter_flags(
 ) -> InterpreterFlags:
     """Read the interpreter flags that decide whether bytecode is written.
 
-    Scanning stops at ``-m``, ``-c``, ``--`` or the script, so arguments
-    belonging to the program under test are never read as interpreter flags.
+    Scanning stops at ``-m``, ``-c``, ``-``, ``--`` or the script, so
+    arguments belonging to the program under test are never read as
+    interpreter flags.  ``-c`` and ``-m`` end the options wherever they
+    appear, attached (``-cCODE``) or clustered (``-EcCODE``) included: the
+    rest of the token is the program, and its letters are not flags.
     """
     ignores_environment = False
     suppresses_writes = False
@@ -334,7 +337,7 @@ def scan_interpreter_flags(
     index = start
     while index < len(argv):
         token = argv[index]
-        if token in ("-c", "--") or not token.startswith("-"):
+        if token in ("-c", "--", "-") or not token.startswith("-"):
             break
         if token == "-m":
             if index + 1 < len(argv):
@@ -347,6 +350,9 @@ def scan_interpreter_flags(
         consumed_value = False
         stop = False
         for position, letter in enumerate(letters):
+            if letter == "c":
+                stop = True
+                break
             if letter in ("I", "E"):
                 ignores_environment = True
             elif letter == "B":
