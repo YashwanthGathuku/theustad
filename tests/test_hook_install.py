@@ -283,3 +283,24 @@ def test_a_plugin_cache_copy_never_installs_settings_hooks(tmp_path, monkeypatch
     output = capsys.readouterr().out
     assert "HOOKS provided by the TheUstad Claude Code plugin" in output
     assert "install-hooks" not in output.split("Or merge", 1)[0]
+
+
+def test_no_home_directory_does_not_stop_enrollment(tmp_path, monkeypatch, capsys):
+    # Windows raises from Path.home() when neither USERPROFILE nor HOME is
+    # set, which is how a minimal environment launches a hook or enroll.
+    def no_home():
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.setattr(Path, "home", staticmethod(no_home))
+    monkeypatch.setenv("THEUSTAD_HOME", str(tmp_path / "external"))
+    repo = _repo(tmp_path)
+
+    assert theustad.main(["enroll", "--repo", str(repo)]) == 0
+    assert theustad.main(["status", "--repo", str(repo)]) == 0
+    assert "CLAUDE_HOOKS unknown" in capsys.readouterr().out
+    assert claudesettings.covers("Stop") is False
+    assert claudesettings.in_plugin_cache(Path(theustad.__file__)) is False
+
+    assert theustad.main(["install-hooks"]) == 2
+    assert "CLAUDE_CONFIG_DIR" in capsys.readouterr().err

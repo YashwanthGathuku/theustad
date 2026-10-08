@@ -33,8 +33,18 @@ def user_settings_path(environ: Mapping[str, str] | None = None) -> Path:
     """Claude Code's user settings file, honouring ``CLAUDE_CONFIG_DIR``."""
     environment = os.environ if environ is None else environ
     configured = environment.get("CLAUDE_CONFIG_DIR")
-    root = Path(configured).expanduser() if configured else Path.home() / ".claude"
-    return root / "settings.json"
+    if configured:
+        return Path(configured).expanduser() / "settings.json"
+    try:
+        home = Path.home()
+    except RuntimeError as error:
+        # Windows raises when neither USERPROFILE nor HOME is set; a hook or
+        # enrollment launched with a minimal environment is not an error.
+        raise ValueError(
+            "cannot locate Claude Code's settings: no home directory; set "
+            "CLAUDE_CONFIG_DIR or pass --settings"
+        ) from error
+    return home / ".claude" / "settings.json"
 
 
 def in_plugin_cache(path: Path, environ: Mapping[str, str] | None = None) -> bool:
@@ -44,8 +54,8 @@ def in_plugin_cache(path: Path, environ: Mapping[str, str] | None = None) -> boo
     nothing that outlives the plugin -- a settings hook above all -- may point
     into it.
     """
-    cache = user_settings_path(environ).parent / "plugins" / "cache"
     try:
+        cache = user_settings_path(environ).parent / "plugins" / "cache"
         Path(path).resolve().relative_to(cache.resolve())
     except ValueError:
         return False

@@ -785,9 +785,12 @@ def _uninstall_hooks(args: argparse.Namespace) -> int:
     return 0
 
 
-def _installed_hook_state() -> tuple[Path, dict[str, list[dict[str, Any]]] | None]:
-    """User settings path and its TheUstad handlers; ``None`` when unreadable."""
-    path = claudesettings.user_settings_path()
+def _installed_hook_state() -> tuple[Path | None, dict[str, list[dict[str, Any]]] | None]:
+    """User settings path and its TheUstad handlers; ``None`` when unknown or unreadable."""
+    try:
+        path = claudesettings.user_settings_path()
+    except ValueError:
+        return None, None
     try:
         settings = claudesettings.read_settings(path)
     except (OSError, ValueError, UnicodeDecodeError):
@@ -936,7 +939,9 @@ def _status(args: argparse.Namespace) -> int:
     _console_output(f"CENSUS {str(policy.census).lower()}")
     _console_output(f"AUDIT_CHAINS {len(audits)}")
     settings_path, installed = _installed_hook_state()
-    if installed is None:
+    if settings_path is None:
+        _console_output("CLAUDE_HOOKS unknown (no home directory; set CLAUDE_CONFIG_DIR)")
+    elif installed is None:
         _console_output(f"CLAUDE_HOOKS unreadable {settings_path}")
     elif all(event in installed for event in claudesettings.HOOK_EVENTS):
         missing = [
