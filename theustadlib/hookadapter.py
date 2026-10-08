@@ -14,7 +14,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Sequence
 
-from . import census, enrollment
+from . import census, claudesettings, enrollment
 from .census import CENSUS_EVIDENCE, CENSUS_UNSUPERVISED
 from .chain import AuditChain
 from .claims import Claim, find_claims
@@ -682,6 +682,14 @@ def main(argv: Sequence[str]) -> int:
         payload = json.loads(sys.stdin.read())
         if not isinstance(payload, dict):
             raise ValueError("hook payload must be a JSON object")
+        if vendor == claudesettings.PLUGIN_VENDOR:
+            # The Claude Code plugin and user settings can both carry these
+            # hooks, and Claude Code runs a plugin's copy separately. Two
+            # handlers for one session would verify twice and race on its
+            # audit chain, so the plugin's copy defers to an installed one.
+            if claudesettings.covers(payload.get("hook_event_name")):
+                return ALLOW
+            vendor = "claude"
         response = dispatch(vendor, payload, expected_event=expected_event)
         # Emitting is inside the guard too: a BrokenPipeError or an
         # unserializable payload here would otherwise escape as exit 1.

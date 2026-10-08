@@ -1,0 +1,39 @@
+{
+  "name": "theustad",
+  "displayName": "TheUstad",
+  "description": "Verify Claude's \"done\" before the session stops: protected tests, a fixed verifier, and a tamper-evident audit chain for every enrolled repository.",
+  "author": {
+    "name": "Yashwanth Gathuku",
+    "url": "https://github.com/YashwanthGathuku"
+  },
+  "homepage": "https://github.com/YashwanthGathuku/theustad",
+  "repository": "https://github.com/YashwanthGathuku/theustad",
+  "license": "MIT",
+  "keywords": ["verification", "testing", "reward-hacking", "hooks", "audit"],
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/theustad.py", "hook", "claude-plugin", "SessionStart"],
+            "timeout": 3600
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/theustad.py", "hook", "claude-plugin", "Stop"],
+            "timeout": 3600
+          }
+        ]
+      }
+    ]
+  }
+}

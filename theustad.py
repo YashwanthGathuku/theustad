@@ -15,7 +15,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, TextIO
 
-from theustadlib import census, enrollment, hookadapter
+from theustadlib import ci, census, claudesettings, enrollment, hookadapter
 from theustadlib.census import CENSUS_EVIDENCE, CENSUS_UNSUPERVISED
 from theustadlib.chain import AuditChain
 from theustadlib.chain import verify as verify_audit_chain
@@ -609,7 +609,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-HOOK_COMMANDS = frozenset({"enroll", "status", "unenroll", "hook", "verify-chain"})
+HOOK_COMMANDS = frozenset(
+    {"enroll", "status", "unenroll", "hook", "verify-chain", "install-hooks", "uninstall-hooks"}
+)
 
 
 def build_hook_parser() -> argparse.ArgumentParser:
@@ -674,6 +676,23 @@ def build_hook_parser() -> argparse.ArgumentParser:
     hook_parser = commands.add_parser("hook", add_help=False)
     hook_parser.add_argument("hook_argv", nargs=argparse.REMAINDER)
 
+    install_parser = commands.add_parser(
+        "install-hooks",
+        help="add TheUstad's SessionStart and Stop hooks to Claude Code user settings",
+    )
+    install_parser.add_argument(
+        "--settings",
+        type=Path,
+        help="settings file; defaults to $CLAUDE_CONFIG_DIR or ~/.claude settings.json",
+    )
+    install_parser.add_argument(
+        "--dry-run", action="store_true", help="print the result without writing it"
+    )
+    uninstall_parser = commands.add_parser(
+        "uninstall-hooks", help="remove TheUstad's hooks from Claude Code user settings"
+    )
+    uninstall_parser.add_argument("--settings", type=Path)
+
     verify_parser = commands.add_parser("verify-chain")
     verify_parser.add_argument("--repo", required=True, type=Path)
     verify_parser.add_argument("--session-id")
@@ -691,8 +710,7 @@ def _hook_patterns(args: argparse.Namespace) -> tuple[str, ...]:
 
 
 def _claude_hook_settings(hook_timeout: float) -> dict[str, Any]:
-    python = str(Path(sys.executable).resolve(strict=True))
-    cli = str(Path(__file__).resolve(strict=True))
+    python, cli = _hook_invocation()
     # An omitted timeout leaves the host's default in force, which may sit
     # below the verifier deadline; a cancelled hook renders no decision.
     timeout = int(math.ceil(hook_timeout))
@@ -709,6 +727,72 @@ def _claude_hook_settings(hook_timeout: float) -> dict[str, Any]:
         }
 
     return {"hooks": {"SessionStart": [entry("SessionStart")], "Stop": [entry("Stop")]}}
+
+
+def _hook_invocation() -> tuple[str, str]:
+    """The absolute interpreter and CLI an installed hook should run."""
+    return (
+        str(Path(sys.executable).resolve(strict=True)),
+        str(Path(__file__).resolve(strict=True)),
+    )
+
+
+def _install_hooks(args: argparse.Namespace) -> int:
+    path = args.settings or claudesettings.user_settings_path()
+    if claudesettings.in_plugin_cache(Path(__file__)):
+        raise ValueError(
+            "this copy of TheUstad lives in Claude Code's plugin cache, which is "
+            "replaced on every plugin update, and the plugin already provides "
+            "these hooks. To use settings hooks instead, run install-hooks from "
+            "a clone that stays put."
+        )
+    current = claudesettings.read_settings(path)
+    updated = claudesettings.with_hooks(current, *_hook_invocation())
+    if args.dry_run:
+        _console_output(json.dumps(updated, indent=2))
+        return 0
+    backup = claudesettings.write_settings(path, updated)
+    _console_output(f"INSTALLED Claude Code hooks SessionStart, Stop in {path}")
+    if backup is not None:
+        _console_output(f"BACKUP {backup}")
+    _console_output(
+        f"HOOK_TIMEOUT {claudesettings.HANDLER_TIMEOUT}s ceiling; every enrolled "
+        "verifier deadline stays below it"
+    )
+    if current.get("disableAllHooks") is True:
+        _console_output(
+            f"THEUSTAD_WARNING {path} sets disableAllHooks, so these hooks will "
+            "not run until it is removed",
+            stream=sys.stderr,
+        )
+    _console_output(
+        "Next: enroll a repository with `enroll --repo PATH`, start a new Claude "
+        "Code session in it, and confirm both hooks with /hooks."
+    )
+    return 0
+
+
+def _uninstall_hooks(args: argparse.Namespace) -> int:
+    path = args.settings or claudesettings.user_settings_path()
+    current = claudesettings.read_settings(path)
+    if not claudesettings.installed_handlers(current):
+        _console_output(f"NOT_INSTALLED {path}")
+        return 1
+    backup = claudesettings.write_settings(path, claudesettings.without_hooks(current))
+    _console_output(f"UNINSTALLED Claude Code hooks from {path}")
+    if backup is not None:
+        _console_output(f"BACKUP {backup}")
+    return 0
+
+
+def _installed_hook_state() -> tuple[Path, dict[str, list[dict[str, Any]]] | None]:
+    """User settings path and its TheUstad handlers; ``None`` when unreadable."""
+    path = claudesettings.user_settings_path()
+    try:
+        settings = claudesettings.read_settings(path)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return path, None
+    return path, claudesettings.installed_handlers(settings)
 
 
 def _calibrate(
@@ -763,6 +847,24 @@ def _enroll(args: argparse.Namespace) -> int:
             "or lower --timeout."
         )
 
+    if hook_timeout > claudesettings.HANDLER_TIMEOUT:
+        raise ValueError(
+            f"hook timeout {hook_timeout:g}s exceeds the "
+            f"{claudesettings.HANDLER_TIMEOUT}s ceiling installed hooks use; "
+            "lower --timeout"
+        )
+    settings_path, installed = _installed_hook_state()
+    for handlers in (installed or {}).values():
+        for installed_handler in handlers:
+            limit = installed_handler.get("timeout")
+            if isinstance(limit, (int, float)) and limit < hook_timeout:
+                raise ValueError(
+                    f"the TheUstad hooks installed in {settings_path} allow "
+                    f"{limit:g}s, below this repository's {hook_timeout:g}s hook "
+                    "timeout; the host would cancel a Stop that is still "
+                    "verifying. Run `install-hooks` again first."
+                )
+
     if args.calibrate:
         p95, timed_out = _calibrate(repo, verifier_argv, args.timeout)
         _console_output(f"CALIBRATE p95 {p95:.1f}s (slowest of 3 runs)")
@@ -798,8 +900,18 @@ def _enroll(args: argparse.Namespace) -> int:
     _console_output(f"VERIFIER {shlex.join(policy.verifier_argv)}")
     _console_output(f"VERIFIER_DEADLINE {policy.timeout:g}s")
     _console_output(f"HOOK_TIMEOUT {policy.hook_timeout:g}s")
+    if installed is not None and all(event in installed for event in claudesettings.HOOK_EVENTS):
+        _console_output(f"HOOKS installed in {settings_path}")
+    elif claudesettings.in_plugin_cache(Path(__file__)):
+        _console_output("HOOKS provided by the TheUstad Claude Code plugin")
+    else:
+        python, cli = _hook_invocation()
+        _console_output(
+            "HOOKS not installed. Install them once for every repository with: "
+            + shlex.join([python, cli, "install-hooks"])
+        )
     _console_output(
-        "Merge this block into ~/.claude/settings.json, then inspect it with /hooks:"
+        "Or merge this block into ~/.claude/settings.json yourself, then inspect it with /hooks:"
     )
     _console_output(json.dumps(_claude_hook_settings(policy.hook_timeout), indent=2))
     return 0
@@ -823,6 +935,21 @@ def _status(args: argparse.Namespace) -> int:
     _console_output(f"REQUIRE_CLAIM {str(policy.require_claim).lower()}")
     _console_output(f"CENSUS {str(policy.census).lower()}")
     _console_output(f"AUDIT_CHAINS {len(audits)}")
+    settings_path, installed = _installed_hook_state()
+    if installed is None:
+        _console_output(f"CLAUDE_HOOKS unreadable {settings_path}")
+    elif all(event in installed for event in claudesettings.HOOK_EVENTS):
+        missing = [
+            cli
+            for handlers in installed.values()
+            for installed_handler in handlers
+            for cli in [shlex.split(installed_handler["command"])[-4]]
+            if not Path(cli).is_file()
+        ]
+        state = "stale" if missing else "installed"
+        _console_output(f"CLAUDE_HOOKS {state} {settings_path}")
+    else:
+        _console_output(f"CLAUDE_HOOKS not-installed {settings_path}")
     return 0
 
 
@@ -880,9 +1007,99 @@ def _hook_command(argv: Sequence[str]) -> int:
             return hookadapter.main(args.hook_argv)
         if args.hook_command == "verify-chain":
             return _verify_hook_chains(args)
+        if args.hook_command == "install-hooks":
+            return _install_hooks(args)
+        if args.hook_command == "uninstall-hooks":
+            return _uninstall_hooks(args)
         raise ValueError(f"unsupported hook command: {args.hook_command}")
     except Exception as error:
         # Never let an unexpected exception pick the exit code for us.
+        _console_output(
+            f"THEUSTAD_ERROR {type(error).__name__}: {error}", stream=sys.stderr
+        )
+        return 2
+
+
+CI_COMMAND = "ci"
+
+
+def build_ci_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="theustad.py ci",
+        description=(
+            "Check the checked-out change against the acceptance tests of the "
+            "commit it started from. Protected inputs and policy are read from "
+            "that commit, never from the change."
+        ),
+    )
+    parser.add_argument(
+        "--base",
+        required=True,
+        help="base branch or commit; the check uses its merge base with HEAD",
+    )
+    parser.add_argument("--repo", type=Path, default=Path("."))
+    parser.add_argument(
+        "--verifier",
+        help="verifier command; defaults to .theustad.json at the base, then isolated pytest",
+    )
+    parser.add_argument(
+        "--protect",
+        action="append",
+        nargs="+",
+        metavar="PATTERN",
+        help="replace the protected patterns",
+    )
+    parser.add_argument(
+        "--protect-add",
+        action="append",
+        nargs="+",
+        metavar="PATTERN",
+        help="append protected patterns",
+    )
+    parser.add_argument(
+        "--no-census",
+        action="store_true",
+        help="skip the pytest test census (saves one test run on the base commit)",
+    )
+    parser.add_argument("--timeout", type=_positive)
+    parser.add_argument("--state-dir", type=Path)
+    parser.add_argument(
+        "--ephemeral",
+        action="store_true",
+        help="the checkout is disposable: do not put protected files back afterwards",
+    )
+    parser.add_argument("--json", type=Path, help="write the result as JSON")
+    parser.add_argument(
+        "--summary", type=Path, help="append a Markdown summary (e.g. $GITHUB_STEP_SUMMARY)"
+    )
+    return parser
+
+
+def _ci_command(argv: Sequence[str]) -> int:
+    args = build_ci_parser().parse_args(argv)
+    try:
+        result = ci.run_check(
+            args.repo,
+            args.base,
+            verifier=args.verifier,
+            protect=_flatten_patterns(args.protect) if args.protect else None,
+            protect_add=_flatten_patterns(args.protect_add),
+            census_enabled=False if args.no_census else None,
+            timeout=args.timeout,
+            state_dir=args.state_dir,
+            ephemeral=args.ephemeral,
+            output=_console_output,
+        )
+        if args.json is not None:
+            args.json.write_text(
+                json.dumps(result.to_json(), indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        if args.summary is not None:
+            with args.summary.open("a", encoding="utf-8") as summary:
+                summary.write(ci.markdown_summary(result))
+        return result.exit_code
+    except Exception as error:
         _console_output(
             f"THEUSTAD_ERROR {type(error).__name__}: {error}", stream=sys.stderr
         )
@@ -893,6 +1110,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     values = list(sys.argv[1:] if argv is None else argv)
     if values and values[0] in HOOK_COMMANDS:
         return _hook_command(values)
+    if values and values[0] == CI_COMMAND:
+        return _ci_command(values[1:])
     parser = build_parser()
     args = parser.parse_args(values)
 

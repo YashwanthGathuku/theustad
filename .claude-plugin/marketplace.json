@@ -1,0 +1,16 @@
+{
+  "name": "theustad",
+  "owner": {
+    "name": "Yashwanth Gathuku",
+    "url": "https://github.com/YashwanthGathuku"
+  },
+  "description": "TheUstad: make coding agents earn completion.",
+  "plugins": [
+    {
+      "name": "theustad",
+      "source": "./",
+      "description": "Verify Claude's \"done\" before the session stops, in every repository you enroll.",
+      "skills": ["./claude-code/skills/"]
+    }
+  ]
+}

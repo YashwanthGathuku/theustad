@@ -96,12 +96,21 @@ after installation, then follow [the plugin guide](docs/PLUGIN_GUIDE.md).
 
 | Interface | Assurance | Use it for | Entry point |
 |---|---|---|---|
+| Pull request check | High; needs no agent integration | Every pull request, whichever agent or person wrote it | `theustad.py ci --base main`, or the GitHub Action: [CI guide](docs/CI.md) |
 | Standalone wrapper | Highest | CI, automation, direct review | `python theustad.py --repo ... --task ...` |
 | Codex plugin | Highest | A protected child coding task in Codex | `$theustad:doctor`, `$theustad:run`, `$theustad:audit` |
-| Claude Code hook (experimental) | Guardrail | Automatic verification when Claude tries to stop | `theustad.py enroll` + `SessionStart`/`Stop` hooks |
+| Claude Code hook (experimental) | Guardrail | Automatic verification when Claude tries to stop | The Claude Code plugin or `install-hooks`, then `enroll`: [Claude Code guide](docs/CLAUDE_CODE.md) |
 
-Use one interface per working tree at a time. All modes use the same protected
-verifier concepts and SHA-256 audit-chain format.
+**Which one?** If agents open pull requests, start with the pull request
+check. It works with Codex, Claude Code, opencode, aider or anything else,
+because it judges the finished change rather than the agent. It reads the
+tests and the policy from the commit the change started from, so the change
+cannot edit its own judge. Add the Claude Code hooks or the Codex plugin when
+you want the agent stopped and sent back while it is still working.
+
+Use one interface per working tree at a time; the pull request check runs in
+CI on the finished change, so it can sit behind any of the others. All modes
+use the same protected verifier concepts and SHA-256 audit-chain format.
 
 Wrapper mode remains the strongest boundary because TheUstad owns and
 terminates the agent process. Hook mode depends on the host actually invoking
@@ -156,11 +165,20 @@ runs the fixed enrolled verifier, and returns failure evidence with exit code
 2 so Claude continues working.
 
 ```bash
+# Install the hooks once, either as the Claude Code plugin ...
+claude plugin marketplace add YashwanthGathuku/theustad
+claude plugin install theustad@theustad
+# ... or into ~/.claude/settings.json from a clone that stays put:
+python theustad.py install-hooks
+
+# Then enroll each repository it should protect:
 python theustad.py enroll --repo /absolute/path/to/project --calibrate
-# Merge the emitted JSON into ~/.claude/settings.json.
 # Start a new Claude Code session in the enrolled repository, then use /hooks
-# to confirm both commands come from User Settings.
+# to confirm both hooks are listed.
 ```
+
+The [Claude Code guide](docs/CLAUDE_CODE.md) covers choosing a verifier,
+`status`, `uninstall-hooks`, and what each outcome looks like.
 
 ### Hook timeout
 
