@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import os
 import shlex
 import shutil
@@ -24,6 +25,8 @@ HOOK_EVENTS = ("SessionStart", "Stop")
 # cancelled by the host while a verifier is still entitled to run -- and the
 # installed hooks need no update when another repository is enrolled.
 HANDLER_TIMEOUT = 3600
+# What Claude Code applies to a command hook that names no timeout of its own.
+CLAUDE_DEFAULT_COMMAND_TIMEOUT = 600
 BACKUP_SUFFIX = ".theustad-backup"
 PLUGIN_VENDOR = "claude-plugin"
 _CLI_NAME = "theustad.py"
@@ -78,6 +81,45 @@ def handler_event(handler: Any) -> str | None:
     if Path(argv[-4]).name != _CLI_NAME:
         return None
     return argv[-1] if argv[-1] in HOOK_EVENTS else None
+
+
+def effective_timeout(handler: Mapping[str, Any]) -> float:
+    """The timeout Claude Code will actually apply to ``handler``.
+
+    A handler that names none, or names something unusable, gets the host's
+    command-hook default -- not "no limit".
+    """
+    value = handler.get("timeout")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        return float(CLAUDE_DEFAULT_COMMAND_TIMEOUT)
+    return float(value)
+
+
+def runnable(handler: Mapping[str, Any]) -> bool:
+    """Whether a TheUstad settings handler can actually start.
+
+    One that cannot is worse than none: a missing interpreter exits 127,
+    which Claude Code treats as a non-blocking failure, so the stop goes
+    through unverified.
+    """
+    try:
+        argv = shlex.split(handler["command"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if len(argv) < 5:
+        return False
+    interpreter = argv[0] if os.path.isabs(argv[0]) else shutil.which(argv[0])
+    return (
+        bool(interpreter)
+        and os.path.isfile(interpreter)
+        and os.access(interpreter, os.X_OK)
+        and Path(argv[-4]).is_file()
+    )
 
 
 def installed_handlers(settings: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -211,8 +253,9 @@ def covers(event: str | None, environ: Mapping[str, str] | None = None) -> bool:
 
     The Claude Code plugin ships the same hooks. When both are present the
     plugin's copy stands down, so one session is never handled twice. A file
-    that cannot be read is treated as covering nothing: Claude Code cannot
-    load hooks from it either, and the plugin then has to run.
+    that cannot be read, or a handler whose interpreter or CLI is gone, covers
+    nothing: Claude Code cannot run hooks from either, and the plugin then has
+    to.
     """
     if event not in HOOK_EVENTS:
         return False
@@ -220,4 +263,6 @@ def covers(event: str | None, environ: Mapping[str, str] | None = None) -> bool:
         settings = read_settings(user_settings_path(environ))
     except (OSError, ValueError, UnicodeDecodeError):
         return False
-    return event in installed_handlers(settings)
+    # Defer only to a handler that can start; a stale one would leave the
+    # session with no enforcement at all.
+    return any(runnable(item) for item in installed_handlers(settings).get(event, []))

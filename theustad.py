@@ -859,8 +859,8 @@ def _enroll(args: argparse.Namespace) -> int:
     settings_path, installed = _installed_hook_state()
     for handlers in (installed or {}).values():
         for installed_handler in handlers:
-            limit = installed_handler.get("timeout")
-            if isinstance(limit, (int, float)) and limit < hook_timeout:
+            limit = claudesettings.effective_timeout(installed_handler)
+            if limit < hook_timeout:
                 raise ValueError(
                     f"the TheUstad hooks installed in {settings_path} allow "
                     f"{limit:g}s, below this repository's {hook_timeout:g}s hook "
@@ -944,14 +944,12 @@ def _status(args: argparse.Namespace) -> int:
     elif installed is None:
         _console_output(f"CLAUDE_HOOKS unreadable {settings_path}")
     elif all(event in installed for event in claudesettings.HOOK_EVENTS):
-        missing = [
-            cli
+        stale = any(
+            not claudesettings.runnable(installed_handler)
             for handlers in installed.values()
             for installed_handler in handlers
-            for cli in [shlex.split(installed_handler["command"])[-4]]
-            if not Path(cli).is_file()
-        ]
-        state = "stale" if missing else "installed"
+        )
+        state = "stale" if stale else "installed"
         _console_output(f"CLAUDE_HOOKS {state} {settings_path}")
     else:
         _console_output(f"CLAUDE_HOOKS not-installed {settings_path}")

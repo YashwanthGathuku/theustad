@@ -304,3 +304,53 @@ def test_no_home_directory_does_not_stop_enrollment(tmp_path, monkeypatch, capsy
 
     assert theustad.main(["install-hooks"]) == 2
     assert "CLAUDE_CONFIG_DIR" in capsys.readouterr().err
+
+
+def _write_handler(command_argv, **extra):
+    path = settings_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handler = {"type": "command", "command": shlex.join(command_argv), **extra}
+    path.write_text(
+        json.dumps({"hooks": {event: [{"hooks": [dict(handler, command=shlex.join([*command_argv[:-1], event]))]}] for event in claudesettings.HOOK_EVENTS}}),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize("missing", ["interpreter", "cli"])
+def test_plugin_does_not_defer_to_a_handler_that_cannot_start(
+    tmp_path, monkeypatch, capsys, missing
+):
+    # A missing interpreter exits 127, which Claude Code treats as
+    # non-blocking: deferring to it would leave the session unenforced.
+    monkeypatch.setenv("THEUSTAD_HOME", str(tmp_path / "external"))
+    interpreter = sys.executable if missing == "cli" else str(tmp_path / "gone" / "python3")
+    cli = str(tmp_path / "gone" / "theustad.py") if missing == "cli" else theustad.__file__
+    _write_handler([interpreter, cli, "hook", "claude", "Stop"], timeout=3600)
+    repo = _repo(tmp_path)
+    theustad.main(["enroll", "--repo", str(repo), "--no-census"])
+    capsys.readouterr()
+
+    assert claudesettings.covers("Stop") is False
+    # So the plugin's copy does the work, exactly as the claude vendor would.
+    assert _plugin_hook("Stop", _stop_payload(repo), monkeypatch) == hookadapter.BLOCK
+    assert "no protected-input baseline" in capsys.readouterr().err
+
+    theustad.main(["status", "--repo", str(repo)])
+    assert "CLAUDE_HOOKS stale" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("timeout", [None, "600", True, -5])
+def test_an_installed_handler_without_a_usable_timeout_counts_as_the_host_default(
+    tmp_path, monkeypatch, capsys, timeout
+):
+    monkeypatch.setenv("THEUSTAD_HOME", str(tmp_path / "external"))
+    extra = {} if timeout is None else {"timeout": timeout}
+    _write_handler([sys.executable, theustad.__file__, "hook", "claude", "Stop"], **extra)
+    repo = _repo(tmp_path)
+
+    # 900 s plus the margin outlives the host's 600 s default.
+    assert theustad.main(["enroll", "--repo", str(repo), "--timeout", "900"]) == 2
+    assert "600s" in capsys.readouterr().err
+    assert enrollment.load_policy(repo) is None
+    # A deadline the default does hold is accepted.
+    assert theustad.main(["enroll", "--repo", str(repo), "--timeout", "300"]) == 0
