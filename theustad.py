@@ -785,17 +785,25 @@ def _uninstall_hooks(args: argparse.Namespace) -> int:
     return 0
 
 
-def _installed_hook_state() -> tuple[Path | None, dict[str, list[dict[str, Any]]] | None]:
-    """User settings path and its TheUstad handlers; ``None`` when unknown or unreadable."""
+def _installed_hook_state() -> tuple[
+    Path | None, dict[str, list[dict[str, Any]]] | None, bool
+]:
+    """User settings path, its TheUstad handlers, and whether hooks are off.
+
+    The handlers are ``None`` when the file is unknown or unreadable.
+    ``disableAllHooks`` leaves every entry in place and runs none of them --
+    the plugin's included -- so entries alone never mean enforcement.
+    """
     try:
         path = claudesettings.user_settings_path()
     except ValueError:
-        return None, None
+        return None, None, False
     try:
         settings = claudesettings.read_settings(path)
     except (OSError, ValueError, UnicodeDecodeError):
-        return path, None
-    return path, claudesettings.installed_handlers(settings)
+        return path, None, False
+    disabled = settings.get("disableAllHooks") is True
+    return path, claudesettings.installed_handlers(settings), disabled
 
 
 def _calibrate(
@@ -856,7 +864,7 @@ def _enroll(args: argparse.Namespace) -> int:
             f"{claudesettings.HANDLER_TIMEOUT}s ceiling installed hooks use; "
             "lower --timeout"
         )
-    settings_path, installed = _installed_hook_state()
+    settings_path, installed, disabled = _installed_hook_state()
     for handlers in (installed or {}).values():
         for installed_handler in handlers:
             limit = claudesettings.effective_timeout(installed_handler)
@@ -903,8 +911,14 @@ def _enroll(args: argparse.Namespace) -> int:
     _console_output(f"VERIFIER {shlex.join(policy.verifier_argv)}")
     _console_output(f"VERIFIER_DEADLINE {policy.timeout:g}s")
     _console_output(f"HOOK_TIMEOUT {policy.hook_timeout:g}s")
-    hooks = _hook_state(installed, repo)
-    if hooks == "installed":
+    hooks = _hook_state(installed, repo, disabled)
+    if hooks == "disabled":
+        _console_output(
+            f"HOOKS disabled: {settings_path} sets disableAllHooks, so Claude "
+            "Code runs no hook at all, TheUstad's included. Remove it, or this "
+            "enrollment verifies nothing."
+        )
+    elif hooks == "installed":
         _console_output(f"HOOKS installed in {settings_path}")
     elif claudesettings.in_plugin_cache(Path(__file__)):
         _console_output("HOOKS provided by the TheUstad Claude Code plugin")
@@ -958,12 +972,17 @@ def _status(args: argparse.Namespace) -> int:
     _console_output(f"REQUIRE_CLAIM {str(policy.require_claim).lower()}")
     _console_output(f"CENSUS {str(policy.census).lower()}")
     _console_output(f"AUDIT_CHAINS {len(audits)}")
-    settings_path, installed = _installed_hook_state()
+    settings_path, installed, disabled = _installed_hook_state()
     if settings_path is None:
         _console_output("CLAUDE_HOOKS unknown (no home directory; set CLAUDE_CONFIG_DIR)")
     elif installed is None:
         _console_output(f"CLAUDE_HOOKS unreadable {settings_path}")
-    elif (hooks := _hook_state(installed, policy.repo)) == "unsafe":
+    elif (hooks := _hook_state(installed, policy.repo, disabled)) == "disabled":
+        _console_output(
+            f"CLAUDE_HOOKS disabled {settings_path} (disableAllHooks is true, so "
+            "no hook runs)"
+        )
+    elif hooks == "unsafe":
         _console_output(
             f"CLAUDE_HOOKS unsafe {settings_path} (they run TheUstad from "
             f"inside {policy.repo}; install them from a clone outside it)"
@@ -973,13 +992,16 @@ def _status(args: argparse.Namespace) -> int:
     return 0
 
 
-def _hook_state(installed, repo) -> str:
-    """``installed``, ``stale``, ``unsafe`` or ``not-installed``.
+def _hook_state(installed, repo, disabled: bool = False) -> str:
+    """``disabled``, ``installed``, ``stale``, ``unsafe`` or ``not-installed``.
 
     Only handlers that can start, in the shape ``install-hooks`` writes and
     from outside ``repo``, count as installed: Claude Code treats a hook that
-    cannot start as non-blocking, so anything less enforces nothing.
+    cannot start as non-blocking, so anything less enforces nothing.  And
+    none of it counts while ``disableAllHooks`` is set.
     """
+    if disabled:
+        return "disabled"
     if installed is None or not all(
         event in installed for event in claudesettings.HOOK_EVENTS
     ):

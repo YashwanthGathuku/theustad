@@ -522,3 +522,22 @@ def test_a_plugin_cache_copy_says_which_settings_entries_do_not_count(
     assert "HOOKS provided by the TheUstad Claude Code plugin" in output
     assert "HOOKS stale entries" in output
     assert "uninstall-hooks" in output
+
+
+def test_disabled_hooks_are_never_reported_as_installed(tmp_path, monkeypatch, capsys):
+    # disableAllHooks keeps every entry and runs none of them.
+    monkeypatch.setenv("THEUSTAD_HOME", str(tmp_path / "external"))
+    repo = _repo(tmp_path)
+    theustad.main(["install-hooks"])
+    settings = json.loads(settings_file().read_text(encoding="utf-8"))
+    settings["disableAllHooks"] = True
+    settings_file().write_text(json.dumps(settings), encoding="utf-8")
+    capsys.readouterr()
+
+    assert theustad.main(["enroll", "--repo", str(repo), "--no-census"]) == 0
+    out = capsys.readouterr().out
+    assert "HOOKS installed" not in out
+    assert "HOOKS disabled" in out
+
+    theustad.main(["status", "--repo", str(repo)])
+    assert "CLAUDE_HOOKS disabled" in capsys.readouterr().out

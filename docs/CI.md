@@ -141,8 +141,12 @@ that runs TheUstad is still part of the pull request, though, and on
   still runs. On a pull request the action compares against the base commit
   GitHub reports, ignoring the `base` input. It judges only the revision
   GitHub reports, the merge commit or the pull request's head, with tracked
-  files unchanged, so the workflow cannot point either side of the comparison
-  somewhere else.
+  files unchanged and no untracked files beyond those `.gitignore` names, so
+  the workflow cannot point either side of the comparison somewhere else.
+- Steps before the check that run the pull request's own code, such as
+  `pip install -e .` or a setup script, can still change what the tests see,
+  in ignored files or outside the checkout. That is the same boundary as the
+  census: code under test runs with the job's permissions.
 - That holds only while the pull request's copy still runs this action. One
   that replaces the step, or points `uses:` somewhere else, decides its own
   result, which is why `.github/` belongs under `CODEOWNERS` below.

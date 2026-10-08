@@ -100,6 +100,7 @@ starts, so enrolling or re-enrolling never changes a session already running.
 - `stale`: a handler cannot start, names a relative path, or is not the
   command `install-hooks` writes
 - `unsafe`: a handler runs TheUstad from inside that repository
+- `disabled`: your settings set `disableAllHooks`, so no hook runs at all
 
 Run `install-hooks` again, from a clone outside the repository, to fix either
 of the last two. `unenroll --repo PATH --yes` removes the policy.

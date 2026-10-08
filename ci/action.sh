@@ -6,6 +6,14 @@
 # cannot become shell syntax here.
 set -euo pipefail
 
+# A path is the pull request's to name, so it is escaped before it reaches a
+# workflow command: a newline in it would otherwise start a command of its own.
+escape() {
+  local value="${1//%/%25}"
+  value="${value//$'\r'/%0D}"
+  printf '%s' "${value//$'\n'/%0A}"
+}
+
 python="${THEUSTAD_PYTHON:-python3}"
 action_path="${GITHUB_ACTION_PATH:?GITHUB_ACTION_PATH is not set}"
 workspace="${GITHUB_WORKSPACE:?GITHUB_WORKSPACE is not set}"
@@ -36,6 +44,20 @@ if [ -n "$event_base" ]; then
     echo "::error title=TheUstad::tracked files differ from the pull request's commit, so a step before this one changed the code TheUstad would judge." >&2
     exit 2
   fi
+  # The tests run against the disk, so a file the revision does not contain
+  # is judged with it: an untracked one, or one the pull request deleted and
+  # a step put back (ignored or not -- the pull request controls .gitignore).
+  untracked="$(git -C "$workspace" ls-files --others --exclude-standard)"
+  if [ -n "$untracked" ]; then
+    echo "::error title=TheUstad::untracked files are in the checkout, first $(escape "${untracked%%$'\n'*}"). A step before this one added files TheUstad would judge with the change; if your build makes them, list them in .gitignore." >&2
+    exit 2
+  fi
+  while IFS= read -r -d '' deleted; do
+    if [ -e "$workspace/$deleted" ] || [ -L "$workspace/$deleted" ]; then
+      echo "::error title=TheUstad::$(escape "$deleted") is deleted by the pull request but present in the checkout, so a step before this one put it back." >&2
+      exit 2
+    fi
+  done < <(git -C "$workspace" diff --name-only -z --no-renames --diff-filter=D "$event_base...HEAD")
 fi
 if [ -z "$base" ]; then
   echo "::error title=TheUstad::no base commit. On pull_request events it is the pull request's base; on other events set the 'base' input." >&2

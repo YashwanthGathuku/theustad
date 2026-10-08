@@ -534,6 +534,56 @@ def test_a_step_before_the_check_cannot_rewrite_the_files_it_judges(repo, tmp_pa
 
 
 @posix_only
+def test_a_step_before_the_check_cannot_add_files_it_judges(repo, tmp_path):
+    event = _pull_request_event(repo)
+    (repo / "app" / "supplied.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+    completed, outputs, _ = run_action(repo, tmp_path, **event)
+
+    assert completed.returncode == 2
+    assert "untracked files are in the checkout, first app/supplied.py" in completed.stderr
+    assert outputs == {}
+
+
+@posix_only
+def test_a_step_before_the_check_cannot_restore_what_the_pull_request_deleted(
+    repo, tmp_path
+):
+    # The pull request deletes an implementation and ignores its path; a
+    # step writes the implementation back, where git status cannot see it.
+    honest_fix(repo)
+    invoice = repo / "app" / "invoice.py"
+    implementation = invoice.read_text(encoding="utf-8")
+    invoice.unlink()
+    with (repo / ".gitignore").open("a", encoding="utf-8") as ignore:
+        ignore.write("app/invoice.py\n")
+    commit_all(repo, "delete the implementation")
+    event = _pull_request_event(repo)
+    invoice.write_text(implementation, encoding="utf-8")
+
+    completed, outputs, _ = run_action(repo, tmp_path, **event)
+
+    assert completed.returncode == 2
+    assert "app/invoice.py is deleted by the pull request" in completed.stderr
+    assert outputs == {}
+
+
+@posix_only
+def test_ignored_build_output_is_still_allowed(repo, tmp_path):
+    honest_fix(repo)
+    with (repo / ".gitignore").open("a", encoding="utf-8") as ignore:
+        ignore.write("build/\n")
+    commit_all(repo, "fix")
+    event = _pull_request_event(repo)
+    (repo / "build").mkdir()
+    (repo / "build" / "output.txt").write_text("built\n", encoding="utf-8")
+
+    completed, outputs, _ = run_action(repo, tmp_path, **event)
+
+    assert outputs["verdict"] == "VERIFIED", completed.stdout + completed.stderr
+
+
+@posix_only
 def test_the_merge_commit_github_reports_is_judged(repo, tmp_path):
     honest_fix(repo)
     commit_all(repo, "fix")
