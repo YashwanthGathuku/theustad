@@ -439,3 +439,39 @@ def test_plugin_still_defers_to_a_handler_outside_the_repository(
 
     assert claudesettings.covers("Stop", repository=repo) is True
     assert _plugin_hook("Stop", _stop_payload(repo), monkeypatch) == hookadapter.ALLOW
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        ["-c", "pass"],
+        ["-I"],
+        pytest.param(
+            None,
+            id="not-python",
+            marks=pytest.mark.skipif(os.name != "posix", reason="POSIX executable stub"),
+        ),
+    ],
+)
+def test_plugin_defers_only_to_the_command_install_hooks_writes(
+    tmp_path, monkeypatch, capsys, prefix
+):
+    # `python -c pass theustad.py hook claude Stop` looks like ours by its
+    # tail but runs only `pass`; a non-Python program never runs it at all.
+    monkeypatch.setenv("THEUSTAD_HOME", str(tmp_path / "external"))
+    if prefix is None:
+        command = [str(_stub(tmp_path / "true", "#!/bin/sh\nexit 0\n")), theustad.__file__]
+    else:
+        command = [sys.executable, *prefix, theustad.__file__]
+    _write_handler([*command, "hook", "claude", "Stop"], timeout=3600)
+    repo = _repo(tmp_path)
+    theustad.main(["enroll", "--repo", str(repo), "--no-census"])
+    capsys.readouterr()
+
+    assert claudesettings.installed_handlers(claudesettings.read_settings(settings_file()))
+    assert claudesettings.covers("Stop") is False
+    assert _plugin_hook("Stop", _stop_payload(repo), monkeypatch) == hookadapter.BLOCK
+    assert "no protected-input baseline" in capsys.readouterr().err
+
+    theustad.main(["status", "--repo", str(repo)])
+    assert "CLAUDE_HOOKS stale" in capsys.readouterr().out

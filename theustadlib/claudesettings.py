@@ -18,6 +18,8 @@ import stat
 from pathlib import Path
 from typing import Any, Mapping
 
+from .verifier import is_python_interpreter
+
 
 HOOK_EVENTS = ("SessionStart", "Stop")
 # One ceiling for every enrolled repository. Enrollment holds each verifier
@@ -121,20 +123,24 @@ def runnable(
     127, which Claude Code treats as a non-blocking failure, so the stop goes
     through unverified.
 
-    It also has to run code the repository under test cannot supply. Claude
-    Code runs hooks in that repository, so a relative ``theustad.py`` -- or a
-    relative interpreter, or a ``PATH`` entry such as ``.`` -- names whatever
-    file the repository puts there, and a stub that exits 0 then answers for
-    TheUstad. With ``repository`` given, a handler running from inside it
-    does not count either: the agent being verified can edit that file.
+    It has to be the command ``install-hooks`` writes, running code the
+    repository under test cannot supply. Claude Code runs hooks in that
+    repository, so a relative ``theustad.py`` -- or a relative interpreter,
+    or a ``PATH`` entry such as ``.`` -- names whatever file the repository
+    puts there, and a stub that exits 0 then answers for TheUstad. With
+    ``repository`` given, a handler running from inside it does not count
+    either: the agent being verified can edit that file.
     """
     try:
         argv = shlex.split(handler["command"])
     except (KeyError, TypeError, ValueError):
         return False
-    if len(argv) < 5:
+    # Exactly the shape ``handler`` writes. Anything before theustad.py can
+    # stop it running -- ``python -c pass theustad.py ...`` runs only
+    # ``pass`` -- and anything but Python there never runs it at all.
+    if len(argv) != 5 or not is_python_interpreter(argv[0]):
         return False
-    interpreter, cli = argv[0], argv[-4]
+    interpreter, cli = argv[0], argv[1]
     if not os.path.isabs(interpreter):
         if os.path.dirname(interpreter):
             return False

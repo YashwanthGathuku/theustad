@@ -61,7 +61,7 @@ _ENV_LONG_OPTIONS = {
 _VALUE_LONG_OPTIONS = frozenset({"--check-hash-based-pycs"})
 
 
-def _is_python_interpreter(argument: str) -> bool:
+def is_python_interpreter(argument: str) -> bool:
     name = PurePath(argument).name.lower()
     if name.endswith(".exe"):
         name = name[: -len(".exe")]
@@ -282,7 +282,7 @@ def interpreter_indices(argv: Sequence[str]) -> tuple[int, ...]:
     return tuple(
         index
         for index, token in enumerate(argv)
-        if index not in operands and _is_python_interpreter(token)
+        if index not in operands and is_python_interpreter(token)
     )
 
 

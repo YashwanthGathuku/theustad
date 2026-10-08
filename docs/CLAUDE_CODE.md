@@ -55,10 +55,10 @@ the new location.
 
 If both the plugin and settings hooks are installed, the plugin's copy stands
 down and the settings hooks do the work, so one session is never verified
-twice. It stands down only for settings hooks that can start and that run
-TheUstad from absolute paths outside the enrolled repository. A relative path
-resolves inside the repository Claude is editing, so the plugin does not
-trust one.
+twice. It stands down only for the settings hooks `install-hooks` writes,
+when they can start and run TheUstad from absolute paths outside the enrolled
+repository. A relative path resolves inside the repository Claude is editing,
+so the plugin does not trust one.
 
 ## 2. Enroll a repository
 
@@ -97,7 +97,8 @@ starts, so enrolling or re-enrolling never changes a session already running.
 
 - `installed`
 - `not-installed`
-- `stale`: a handler cannot start, or names a relative path
+- `stale`: a handler cannot start, names a relative path, or is not the
+  command `install-hooks` writes
 - `unsafe`: a handler runs TheUstad from inside that repository
 
 Run `install-hooks` again, from a clone outside the repository, to fix either
