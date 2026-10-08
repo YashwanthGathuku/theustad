@@ -903,16 +903,36 @@ def _enroll(args: argparse.Namespace) -> int:
     _console_output(f"VERIFIER {shlex.join(policy.verifier_argv)}")
     _console_output(f"VERIFIER_DEADLINE {policy.timeout:g}s")
     _console_output(f"HOOK_TIMEOUT {policy.hook_timeout:g}s")
-    if installed is not None and all(event in installed for event in claudesettings.HOOK_EVENTS):
+    hooks = _hook_state(installed, repo)
+    if hooks == "installed":
         _console_output(f"HOOKS installed in {settings_path}")
     elif claudesettings.in_plugin_cache(Path(__file__)):
         _console_output("HOOKS provided by the TheUstad Claude Code plugin")
+        if hooks != "not-installed":
+            _console_output(
+                f"HOOKS {hooks} entries in {settings_path} do not count; remove "
+                "them with `uninstall-hooks` from a clone of TheUstad"
+            )
     else:
         python, cli = _hook_invocation()
-        _console_output(
-            "HOOKS not installed. Install them once for every repository with: "
-            + shlex.join([python, cli, "install-hooks"])
-        )
+        reinstall = shlex.join([python, cli, "install-hooks"])
+        if hooks == "stale":
+            # A handler that cannot start is non-blocking in Claude Code, so
+            # "installed" here would mean "enforced by nothing".
+            _console_output(
+                f"HOOKS stale in {settings_path}: a handler cannot start or is "
+                f"not the command install-hooks writes. Reinstall them with: {reinstall}"
+            )
+        elif hooks == "unsafe":
+            _console_output(
+                f"HOOKS unsafe in {settings_path}: they run TheUstad from inside "
+                f"{repo}. Reinstall them from a clone outside it."
+            )
+        else:
+            _console_output(
+                "HOOKS not installed. Install them once for every repository with: "
+                + reinstall
+            )
     _console_output(
         "Or merge this block into ~/.claude/settings.json yourself, then inspect it with /hooks:"
     )
@@ -943,20 +963,33 @@ def _status(args: argparse.Namespace) -> int:
         _console_output("CLAUDE_HOOKS unknown (no home directory; set CLAUDE_CONFIG_DIR)")
     elif installed is None:
         _console_output(f"CLAUDE_HOOKS unreadable {settings_path}")
-    elif all(event in installed for event in claudesettings.HOOK_EVENTS):
-        handlers = [item for group in installed.values() for item in group]
-        if not all(claudesettings.runnable(item) for item in handlers):
-            _console_output(f"CLAUDE_HOOKS stale {settings_path}")
-        elif not all(claudesettings.runnable(item, policy.repo) for item in handlers):
-            _console_output(
-                f"CLAUDE_HOOKS unsafe {settings_path} (they run TheUstad from "
-                f"inside {policy.repo}; install them from a clone outside it)"
-            )
-        else:
-            _console_output(f"CLAUDE_HOOKS installed {settings_path}")
+    elif (hooks := _hook_state(installed, policy.repo)) == "unsafe":
+        _console_output(
+            f"CLAUDE_HOOKS unsafe {settings_path} (they run TheUstad from "
+            f"inside {policy.repo}; install them from a clone outside it)"
+        )
     else:
-        _console_output(f"CLAUDE_HOOKS not-installed {settings_path}")
+        _console_output(f"CLAUDE_HOOKS {hooks} {settings_path}")
     return 0
+
+
+def _hook_state(installed, repo) -> str:
+    """``installed``, ``stale``, ``unsafe`` or ``not-installed``.
+
+    Only handlers that can start, in the shape ``install-hooks`` writes and
+    from outside ``repo``, count as installed: Claude Code treats a hook that
+    cannot start as non-blocking, so anything less enforces nothing.
+    """
+    if installed is None or not all(
+        event in installed for event in claudesettings.HOOK_EVENTS
+    ):
+        return "not-installed"
+    handlers = [item for group in installed.values() for item in group]
+    if not all(claudesettings.runnable(item) for item in handlers):
+        return "stale"
+    if not all(claudesettings.runnable(item, repo) for item in handlers):
+        return "unsafe"
+    return "installed"
 
 
 def _unenroll(args: argparse.Namespace) -> int:

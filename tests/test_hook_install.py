@@ -475,3 +475,50 @@ def test_plugin_defers_only_to_the_command_install_hooks_writes(
 
     theustad.main(["status", "--repo", str(repo)])
     assert "CLAUDE_HOOKS stale" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("state", ["stale", "unsafe"])
+def test_enroll_never_calls_hooks_that_enforce_nothing_installed(
+    tmp_path, monkeypatch, capsys, state
+):
+    # With no plugin to take over, a handler that cannot start leaves both
+    # events unenforced, and one inside the repository runs what the agent
+    # left there.
+    monkeypatch.setenv("THEUSTAD_HOME", str(tmp_path / "external"))
+    repo = _repo(tmp_path)
+    if state == "stale":
+        cli = str(tmp_path / "gone" / "theustad.py")
+    else:
+        (repo / "tools").mkdir()
+        cli = str(_stub(repo / "tools" / "theustad.py", ""))
+    _write_handler([sys.executable, cli, "hook", "claude", "Stop"], timeout=3600)
+
+    assert theustad.main(["enroll", "--repo", str(repo), "--no-census"]) == 0
+    out = capsys.readouterr().out
+
+    assert "HOOKS installed" not in out
+    assert f"HOOKS {state} in" in out
+    if state == "stale":
+        assert "install-hooks" in out
+
+
+def test_a_plugin_cache_copy_says_which_settings_entries_do_not_count(
+    tmp_path, monkeypatch, capsys
+):
+    cache_copy = (
+        claudesettings.user_settings_path().parent
+        / "plugins" / "cache" / "theustad" / "theustad" / "abc123" / "theustad.py"
+    )
+    cache_copy.parent.mkdir(parents=True)
+    cache_copy.write_text("", encoding="utf-8")
+    monkeypatch.setattr(theustad, "__file__", str(cache_copy))
+    monkeypatch.setenv("THEUSTAD_HOME", str(tmp_path / "external"))
+    gone = str(tmp_path / "gone" / "theustad.py")
+    _write_handler([sys.executable, gone, "hook", "claude", "Stop"], timeout=3600)
+
+    theustad.main(["enroll", "--repo", str(_repo(tmp_path)), "--no-census"])
+    output = capsys.readouterr().out.split("Or merge", 1)[0]
+
+    assert "HOOKS provided by the TheUstad Claude Code plugin" in output
+    assert "HOOKS stale entries" in output
+    assert "uninstall-hooks" in output
