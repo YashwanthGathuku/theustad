@@ -139,9 +139,10 @@ that runs TheUstad is still part of the pull request, though, and on
 
 - An edit to `.github/workflows/**` is reported as `TAMPERED` while the check
   still runs. On a pull request the action compares against the base commit
-  GitHub reports, ignoring the `base` input, and requires the checkout to
-  contain the pull request's head commit, so the workflow cannot point either
-  side of the comparison somewhere else.
+  GitHub reports, ignoring the `base` input. It judges only the revision
+  GitHub reports, the merge commit or the pull request's head, with tracked
+  files unchanged, so the workflow cannot point either side of the comparison
+  somewhere else.
 - That holds only while the pull request's copy still runs this action. One
   that replaces the step, or points `uses:` somewhere else, decides its own
   result, which is why `.github/` belongs under `CODEOWNERS` below.

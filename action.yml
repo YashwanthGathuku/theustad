@@ -57,6 +57,7 @@ runs:
         THEUSTAD_BASE: ${{ inputs.base }}
         THEUSTAD_EVENT_BASE: ${{ github.event.pull_request.base.sha }}
         THEUSTAD_EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+        THEUSTAD_EVENT_SHA: ${{ github.sha }}
         THEUSTAD_VERIFIER: ${{ inputs.verifier }}
         THEUSTAD_PROTECT_ADD: ${{ inputs.protect-add }}
         THEUSTAD_CENSUS: ${{ inputs.census }}

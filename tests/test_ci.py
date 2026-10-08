@@ -446,10 +446,15 @@ def test_action_fails_a_change_that_edits_its_tests(repo, tmp_path):
 
 
 def _pull_request_event(repo):
-    """What GitHub reports for this pull request, which its workflow cannot set."""
+    """What GitHub reports for this pull request, which its workflow cannot set.
+
+    The checkout here is the pull request's head; on GitHub the default is a
+    merge commit, reported as ``github.sha``. Either is accepted.
+    """
     return {
         "THEUSTAD_EVENT_BASE": git(repo, "rev-parse", "main"),
         "THEUSTAD_EVENT_HEAD": git(repo, "rev-parse", "HEAD"),
+        "THEUSTAD_EVENT_SHA": "0" * 40,
     }
 
 
@@ -483,8 +488,61 @@ def test_a_pull_request_check_must_check_out_the_pull_request(repo, tmp_path):
     completed, outputs, _ = run_action(repo, tmp_path, **event)
 
     assert completed.returncode == 2
-    assert "does not contain the pull request's head commit" in completed.stderr
+    assert "neither the pull request's merge commit" in completed.stderr
     assert outputs == {}
+
+
+def _weaken_then_restore(repo):
+    """A pull request weakens a test; a later workflow step puts it back."""
+    test = repo / "tests" / "test_parser.py"
+    original = test.read_text(encoding="utf-8")
+    test.write_text("def test_ok():\n    pass\n", encoding="utf-8")
+    commit_all(repo, "weaken")
+    event = _pull_request_event(repo)
+    test.write_text(original, encoding="utf-8")
+    honest_fix(repo)
+    return event
+
+
+@posix_only
+def test_a_step_before_the_check_cannot_commit_a_tree_to_be_judged(repo, tmp_path):
+    # The synthetic commit descends from the pull request's head, so asking
+    # only whether the head is an ancestor would accept it.
+    event = _weaken_then_restore(repo)
+    commit_all(repo, "passing tree")
+
+    completed, outputs, _ = run_action(repo, tmp_path, **event)
+
+    assert completed.returncode == 2
+    assert "neither the pull request's merge commit" in completed.stderr
+    assert outputs == {}
+
+
+@posix_only
+def test_a_step_before_the_check_cannot_rewrite_the_files_it_judges(repo, tmp_path):
+    # The pull request carries no fix; a step writes one to disk without
+    # committing it. The tests run against the disk, so the change would be
+    # judged by code it does not contain.
+    event = _pull_request_event(repo)
+    honest_fix(repo)
+
+    completed, outputs, _ = run_action(repo, tmp_path, **event)
+
+    assert completed.returncode == 2
+    assert "tracked files differ" in completed.stderr
+    assert outputs == {}
+
+
+@posix_only
+def test_the_merge_commit_github_reports_is_judged(repo, tmp_path):
+    honest_fix(repo)
+    commit_all(repo, "fix")
+    event = {**_pull_request_event(repo), "THEUSTAD_EVENT_HEAD": "f" * 40}
+    event["THEUSTAD_EVENT_SHA"] = git(repo, "rev-parse", "HEAD")
+
+    completed, outputs, _ = run_action(repo, tmp_path, **event)
+
+    assert outputs["verdict"] == "VERIFIED", completed.stdout + completed.stderr
 
 
 @posix_only
@@ -541,6 +599,7 @@ def test_action_definition_wires_every_input_the_script_reads():
     from_event = {
         "THEUSTAD_EVENT_BASE": "github.event.pull_request.base.sha",
         "THEUSTAD_EVENT_HEAD": "github.event.pull_request.head.sha",
+        "THEUSTAD_EVENT_SHA": "github.sha",
     }
     assert read_by_script == {
         "THEUSTAD_BASE",
