@@ -22,20 +22,39 @@ _PYCACHE_PREFIX = "pycache_prefix="
 # -m takes a value like the options above, and ends the interpreter flags.
 _MODULE_OPTION = "m"
 BYTECODE_VARIABLE = "PYTHONDONTWRITEBYTECODE"
-# ``env`` treats a bare ``-`` as ``-i``; its --help documents both.
-_ENV_IGNORE = frozenset({"-i", "--ignore-environment", "-"})
-# The env options that consume a value, short spelling to long and to the
-# action each one means.  These are the only three: the --block-signal
-# family takes an optional argument, which a long option can only carry
-# with "=", so none of them ever consumes a separate token.
-_VALUE_LAUNCHER_OPTIONS = {
-    "u": ("--unset", "unset"),
-    "C": ("--chdir", "chdir"),
-    "S": ("--split-string", "split"),
+# env's options: what each does, and whether it consumes a value.  The short
+# ones are GNU coreutils' (``env --help``) and BSD's, which macOS ships: -a is
+# --argv0 in newer GNU releases (9.4 rejects it), -P is BSD's search path.
+# An option one implementation lacks makes the other reject the command
+# before running anything, so reading it as the one that has it never accepts
+# a command that runs.
+_ENV_SHORT_OPTIONS = {
+    "i": ("ignore", False),
+    "0": ("other", False),
+    "v": ("other", False),
+    "u": ("unset", True),
+    "C": ("chdir", True),
+    "S": ("split", True),
+    "a": ("other", True),
+    "P": ("other", True),
 }
-_LONG_LAUNCHER_OPTIONS = {
-    long: (letter, kind)
-    for letter, (long, kind) in _VALUE_LAUNCHER_OPTIONS.items()
+# GNU env's long options.  None takes a separate value unless it is
+# "required": the --block-signal family takes an optional one, which a long
+# option can only carry with "=".
+_ENV_LONG_OPTIONS = {
+    "--ignore-environment": ("ignore", "none"),
+    "--null": ("other", "none"),
+    "--unset": ("unset", "required"),
+    "--chdir": ("chdir", "required"),
+    "--split-string": ("split", "required"),
+    "--block-signal": ("other", "optional"),
+    "--default-signal": ("other", "optional"),
+    "--ignore-signal": ("other", "optional"),
+    "--list-signal-handling": ("other", "none"),
+    "--debug": ("other", "none"),
+    "--help": ("other", "none"),
+    "--version": ("other", "none"),
+    "--argv0": ("other", "required"),
 }
 # The only CPython long option that takes a separate value; skipping it
 # without its value would end the scan on the value token.
@@ -64,16 +83,30 @@ class InterpreterFlags:
     module: str | None = None
 
 
+def _env_long_option(name: str) -> str | None:
+    """Resolve a long option the way ``getopt_long`` does.
+
+    GNU env accepts any unambiguous abbreviation, so ``--uns=NAME`` is
+    ``--unset=NAME`` and ``--ignore-en`` is ``--ignore-environment``.  An
+    ambiguous or unknown one is ``None``: env rejects it and runs nothing.
+    """
+    if name in _ENV_LONG_OPTIONS:
+        return name
+    matches = [option for option in _ENV_LONG_OPTIONS if option.startswith(name)]
+    return matches[0] if len(matches) == 1 else None
+
+
 def _launcher_actions(
     argv: Sequence[str], before: int
 ) -> "Iterator[tuple[str, str, int | None]]":
     """Normalise what an ``env``-style launcher does before Python starts.
 
     ``env`` accepts each option in several spellings -- clustered
-    (``-iu NAME``), attached (``-uNAME``), separated (``--unset NAME``) and
-    joined (``--unset=NAME``) -- and takes ``NAME=VALUE`` assignments as
-    positional arguments.  Reading one spelling of each leaves the rest as
-    ways through, so every caller below reads the same normalised view.
+    (``-iu NAME``), attached (``-uNAME``), separated (``--unset NAME``),
+    joined (``--unset=NAME``) and abbreviated (``--uns=NAME``) -- and takes
+    ``NAME=VALUE`` assignments as positional arguments.  Reading one spelling
+    of each leaves the rest as ways through, so every caller below reads the
+    same normalised view.
 
     Each action also reports the index it consumed as a value, if any, so a
     caller can tell an option's operand from the command that follows it.
@@ -84,62 +117,72 @@ def _launcher_actions(
     [ARG]...]``, so the first bare word is the command and everything after
     it belongs to that command: in ``env npm test -- -i`` the ``-i`` is
     npm's, and reading it as env's refuses a verifier that never touches
-    Python at all.
+    Python at all.  ``--`` ends the options and nothing else: a ``-`` and
+    assignments may still follow it.  A command that is itself ``env`` has
+    options of its own, which act as well; each reports an ``exec`` action
+    first.
     """
     start = _env_index(argv, before)
     if start is None:
         return
     index = start + 1
+    options = True
     while index < before:
         token = argv[index]
         name, separator, joined = token.partition("=")
-        if token in _ENV_IGNORE:
+        if token == "-":
             yield ("ignore", "", None)
-        elif separator and name in _LONG_LAUNCHER_OPTIONS:
-            yield (_LONG_LAUNCHER_OPTIONS[name][1], joined, None)
-        elif token in _LONG_LAUNCHER_OPTIONS:
-            index += 1
-            yield (
-                _LONG_LAUNCHER_OPTIONS[token][1],
-                argv[index] if index < before else "",
-                index,
-            )
-        elif token == "--":
-            # env stops reading options here, so the next token is the
-            # command however it is spelled.
-            break
-        elif token.startswith("--"):
-            pass  # some other long option of env's, with no operand
-        elif not token.startswith("-"):
-            if not separator:
-                break  # a bare word: env's COMMAND, and its arguments follow
-            yield ("assign", name, None)
-        else:
+        elif options and token == "--":
+            options = False
+        elif options and token.startswith("--"):
+            option = _env_long_option(name)
+            if option is not None:
+                kind, argument = _ENV_LONG_OPTIONS[option]
+                if separator:
+                    yield (kind, joined, None)
+                elif argument == "required":
+                    index += 1
+                    yield (kind, argv[index] if index < before else "", index)
+                else:
+                    yield (kind, "", None)
+        elif options and token.startswith("-"):
             for position, letter in enumerate(token[1:]):
-                if letter == "i":
-                    yield ("ignore", "", None)
+                kind, takes_value = _ENV_SHORT_OPTIONS.get(letter, ("other", False))
+                if not takes_value:
+                    yield (kind, "", None)
                     continue
-                if letter in _VALUE_LAUNCHER_OPTIONS:
-                    # These take a value: the rest of the cluster, or the
-                    # next token, and either way the cluster ends here.
-                    value = token[position + 2 :]
-                    consumed = None
-                    if not value and index + 1 < before:
-                        index += 1
-                        value = argv[index]
-                        consumed = index
-                    yield (_VALUE_LAUNCHER_OPTIONS[letter][1], value, consumed)
-                    break
+                # A value is the rest of the cluster, or the next token, and
+                # either way the cluster ends here.
+                value = token[position + 2 :]
+                consumed = None
+                if not value and index + 1 < before:
+                    index += 1
+                    value = argv[index]
+                    consumed = index
+                yield (kind, value, consumed)
+                break
+        elif separator:
+            yield ("assign", name, None)
+        elif _is_env(token):
+            # env running env: the inner one's options act too.
+            yield ("exec", "", None)
+            options = True
+        else:
+            break  # env's COMMAND, and its arguments follow
         index += 1
+
+
+def _is_env(token: str) -> bool:
+    name = PurePath(token).name.lower()
+    if name.endswith(".exe"):
+        name = name[: -len(".exe")]
+    return name == "env"
 
 
 def _env_index(argv: Sequence[str], before: int) -> int | None:
     """Find the ``env`` whose options the walk below is entitled to read."""
     for index in range(min(before, len(argv))):
-        name = PurePath(argv[index]).name.lower()
-        if name.endswith(".exe"):
-            name = name[: -len(".exe")]
-        if name == "env":
+        if _is_env(argv[index]):
             return index
     return None
 
@@ -154,12 +197,19 @@ def launcher_working_directory(
     the directory TheUstad launched from.  Resolving it from the repository
     root reads ``-C tests -X pycache_prefix=../tests/cache`` as landing
     outside the repository when it lands in ``tests/cache``, inside it.
+
+    One env changes directory once, after reading all of its options, so
+    only its last ``-C`` counts: ``env -C .. -C .`` stays where it started.
+    An env that runs another env hands it that directory to start from.
     """
     working = Path(start)
+    chdir = ""
     for kind, value, _ in _launcher_actions(argv, len(argv)):
-        if kind == "chdir" and value:
-            working = working / value
-    return working.resolve(strict=False)
+        if kind == "chdir":
+            chdir = value
+        elif kind == "exec":
+            working, chdir = working / chdir, ""
+    return (working / chdir).resolve(strict=False)
 
 
 def launcher_operands(argv: Sequence[str]) -> frozenset[int]:

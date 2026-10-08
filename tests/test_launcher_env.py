@@ -22,18 +22,29 @@ POSIX_ENV = shutil.which("env") if os.name == "posix" else None
 
 # Each spelling reaches Python without a suppressing PYTHONDONTWRITEBYTECODE:
 # -i and a bare - clear the environment, -u and --unset drop the variable, and
-# an assignment overrides it with a value CPython reads as off.
+# an assignment overrides it with a value CPython reads as off.  GNU env takes
+# any unambiguous abbreviation of a long option; -- ends env's options but
+# not its assignments or a bare -; and an env that runs env applies both
+# sets of options.
 DEFEATS = (
     "-u PYTHONDONTWRITEBYTECODE",
     "-uPYTHONDONTWRITEBYTECODE",
     "--unset PYTHONDONTWRITEBYTECODE",
     "--unset=PYTHONDONTWRITEBYTECODE",
+    "--uns=PYTHONDONTWRITEBYTECODE",
+    "--un PYTHONDONTWRITEBYTECODE",
     "-i",
     "--ignore-environment",
+    "--ignore-en",
     "-",
     "-iu SOMETHING_ELSE",
     "PYTHONDONTWRITEBYTECODE=",
     "PYTHONDONTWRITEBYTECODE=0",
+    "-- PYTHONDONTWRITEBYTECODE=",
+    "-- -",
+    "env -u PYTHONDONTWRITEBYTECODE",
+    "-- env -i",
+    "FOO=bar env -i",
 )
 
 # Each of these leaves the variable alone: -u and an assignment naming some
@@ -42,8 +53,11 @@ LEAVES_IT_ALONE = (
     "-u SOMETHING_ELSE",
     "-uSOMETHING_ELSE",
     "--unset=SOMETHING_ELSE",
+    "--uns=SOMETHING_ELSE",
     "FOO=bar",
     "--",
+    "-- FOO=bar",
+    "env -u SOMETHING_ELSE",
     "",
 )
 
@@ -239,6 +253,7 @@ def test_a_direct_pytest_really_writes_bytecode_when_the_variable_is_gone(tmp_pa
     [
         "env -u python {python} -I -m pytest -q",
         "env --unset python {python} -I -m pytest -q",
+        "env --un python {python} -I -m pytest -q",
         "env -upython {python} -I -m pytest -q",
     ],
 )
@@ -267,6 +282,7 @@ def test_the_same_operand_still_allows_a_safe_interpreter():
     [
         "env -C python {python} -I -m pytest -q",
         "env --chdir python {python} -I -m pytest -q",
+        "env --ch python {python} -I -m pytest -q",
         "env -Cpython {python} -I -m pytest -q",
     ],
 )
@@ -283,12 +299,78 @@ def test_every_env_option_that_takes_a_value_is_known():
 
     An option whose operand is not consumed leaves that operand readable as a
     command, which is how `-u python` and `--chdir pytest` each hid the real
-    one. env documents exactly three; the --block-signal family takes an
-    optional argument, which a long option can only carry with `=`.
+    one. GNU env documents -u, -C, -S and, in newer releases, -a; BSD env
+    adds -P. The --block-signal family takes an optional argument, which a
+    long option can only carry with `=`.
     """
     from theustadlib import verifier
 
-    assert set(verifier._VALUE_LAUNCHER_OPTIONS) == {"u", "C", "S"}
+    short = {
+        letter
+        for letter, (_, value) in verifier._ENV_SHORT_OPTIONS.items()
+        if value
+    }
+    long = {
+        option
+        for option, (_, argument) in verifier._ENV_LONG_OPTIONS.items()
+        if argument == "required"
+    }
+    assert short == {"u", "C", "S", "a", "P"}
+    assert long == {"--unset", "--chdir", "--split-string", "--argv0"}
+
+
+@pytest.mark.parametrize(
+    ("spelled", "meant"),
+    [
+        ("--unset", "--unset"),
+        ("--uns", "--unset"),
+        ("--u", "--unset"),
+        ("--ignore-en", "--ignore-environment"),
+        ("--ch", "--chdir"),
+        ("--s", "--split-string"),
+        ("--i", None),  # --ignore-environment or --ignore-signal
+        ("--ignore", None),
+        ("--d", None),  # --debug or --default-signal
+        ("--bogus", None),
+    ],
+)
+def test_a_long_option_resolves_the_way_getopt_long_does(spelled, meant):
+    from theustadlib import verifier
+
+    assert verifier._env_long_option(spelled) == meant
+
+
+def _gnu_env_help() -> str | None:
+    if POSIX_ENV is None:
+        return None
+    completed = subprocess.run(
+        [POSIX_ENV, "--help"], capture_output=True, text=True, check=False
+    )
+    if completed.returncode != 0 or "GNU coreutils" not in completed.stdout:
+        return None
+    return completed.stdout
+
+
+@pytest.mark.skipif(_gnu_env_help() is None, reason="no GNU env here")
+def test_every_long_option_this_env_documents_is_in_the_table():
+    """A long option missing from the table changes what its prefixes mean."""
+    import re
+
+    from theustadlib import verifier
+
+    documented = set(re.findall(r"(--[a-z0-9][a-z0-9-]*)", _gnu_env_help()))
+    assert documented <= set(verifier._ENV_LONG_OPTIONS)
+
+
+@pytest.mark.skipif(_gnu_env_help() is None, reason="no GNU env here")
+@pytest.mark.parametrize("spelled", ["--i", "--ignore", "--d", "--bogus"])
+def test_an_option_the_table_cannot_resolve_is_one_env_rejects(spelled):
+    """Unresolved is safe only because env refuses to run the command at all."""
+    completed = subprocess.run(
+        [POSIX_ENV, spelled, "true"], capture_output=True, check=False
+    )
+
+    assert completed.returncode == 125
 
 
 @pytest.mark.parametrize(
@@ -370,15 +452,60 @@ def test_a_relative_prefix_is_resolved_where_the_command_will_run(
             parse_command(command.format(python=python), repo=repo)
 
 
-def test_chained_chdirs_compose(tmp_path):
-    """env applies each -C in turn, so they stack.
+# Each launcher with the directory it leaves the command in, relative to where
+# it starts.  One env changes directory once, to its last -C; an env that runs
+# env hands the inner one that directory to start from.
+CHDIRS = (
+    (["-C", "a", "-C", "b"], ("b",)),
+    (["-C", "a", "--chdir=b"], ("b",)),
+    (["-C", "a", "--ch", "b"], ("b",)),
+    (["-C", "a", "env", "-C", "b"], ("a", "b")),
+    (["-C", "a", "--", "env", "-C", "b"], ("a", "b")),
+    (["-C", "a", "env", "FOO=bar"], ("a",)),
+)
 
-    Rooted at tmp_path rather than a written-out absolute path: resolve()
+
+@pytest.mark.parametrize(("launcher", "lands"), CHDIRS)
+def test_only_each_env_s_last_chdir_counts(tmp_path, launcher, lands):
+    """Rooted at tmp_path rather than a written-out absolute path: resolve()
     anchors a rootless path to the current drive on Windows, so "/repo"
     comes back as "D:/repo" there and only there.
     """
     from theustadlib.verifier import launcher_working_directory
 
-    argv = ["env", "-C", "a", "-C", "b", "python", "-m", "pytest"]
+    argv = ["env", *launcher, "python", "-m", "pytest"]
 
-    assert launcher_working_directory(argv, tmp_path) == tmp_path / "a" / "b"
+    assert launcher_working_directory(argv, tmp_path) == tmp_path.joinpath(*lands)
+
+
+@pytest.mark.skipif(POSIX_ENV is None, reason="no POSIX env launcher here")
+@pytest.mark.parametrize(("launcher", "lands"), CHDIRS)
+def test_each_chdir_reading_matches_where_env_really_runs(tmp_path, launcher, lands):
+    """The same table, observed rather than read."""
+    for directory in ("a", "b", "a/b"):
+        (tmp_path / directory).mkdir(parents=True, exist_ok=True)
+    completed = subprocess.run(
+        [POSIX_ENV, *launcher, sys.executable, "-c", "import os; print(os.getcwd())"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        pytest.skip(f"this env cannot run {launcher!r}")
+
+    landed = Path(completed.stdout.strip()).resolve()
+    assert landed == tmp_path.joinpath(*lands).resolve()
+
+
+def test_a_later_chdir_back_into_the_repository_is_not_read_as_leaving_it(tmp_path):
+    """`env -C .. -C .` runs where it started, so tests/cache is protected."""
+    python = Path(sys.executable).as_posix()
+    repo = tmp_path / "repo"
+    (repo / "tests").mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="inside the repository"):
+        parse_command(
+            f"env -C .. -C . {python} -I -X pycache_prefix=tests/cache -m pytest",
+            repo=repo,
+        )
