@@ -569,6 +569,63 @@ def test_a_step_before_the_check_cannot_restore_what_the_pull_request_deleted(
 
 
 @posix_only
+@pytest.mark.parametrize("flag", ["--skip-worktree", "--assume-unchanged"])
+def test_index_flags_cannot_hide_a_rewritten_file(repo, tmp_path, flag):
+    # Code a step runs before the check can mark tracked files as unchanged
+    # in the repository's own index; its `git status` then reports nothing.
+    event = _pull_request_event(repo)
+    git(repo, "update-index", flag, "app/parser.py", "app/invoice.py")
+    honest_fix(repo)
+    assert git(repo, "status", "--porcelain") == ""
+
+    completed, outputs, _ = run_action(repo, tmp_path, **event)
+
+    assert completed.returncode == 2
+    assert "tracked files differ from the pull request's commit, first app/" in completed.stderr
+    assert outputs == {}
+
+
+@posix_only
+def test_the_repository_exclude_file_cannot_hide_an_added_file(repo, tmp_path):
+    event = _pull_request_event(repo)
+    with (repo / ".git" / "info" / "exclude").open("a", encoding="utf-8") as exclude:
+        exclude.write("app/supplied.py\n")
+    (repo / "app" / "supplied.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+    completed, outputs, _ = run_action(repo, tmp_path, **event)
+
+    assert completed.returncode == 2
+    assert "first app/supplied.py" in completed.stderr
+
+
+@posix_only
+def test_an_untracked_gitignore_cannot_hide_itself(repo, tmp_path):
+    event = _pull_request_event(repo)
+    (repo / "app" / ".gitignore").write_text("*\n", encoding="utf-8")
+    (repo / "app" / "supplied.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+    completed, outputs, _ = run_action(repo, tmp_path, **event)
+
+    assert completed.returncode == 2
+    assert "first app/.gitignore" in completed.stderr
+
+
+@posix_only
+def test_a_replace_ref_cannot_change_what_head_contains(repo, tmp_path):
+    # `git replace` leaves HEAD's id alone but makes git read another
+    # commit's tree for it -- here the base's, where the tests are intact.
+    honest_fix(repo)
+    (repo / "tests" / "test_parser.py").write_text("def test_ok():\n    pass\n", encoding="utf-8")
+    commit_all(repo, "fix, and weaken a test")
+    event = _pull_request_event(repo)
+    git(repo, "replace", "HEAD", "main")
+
+    completed, outputs, _ = run_action(repo, tmp_path, **event)
+
+    assert outputs["verdict"] == "TAMPERED", completed.stdout + completed.stderr
+
+
+@posix_only
 def test_ignored_build_output_is_still_allowed(repo, tmp_path):
     honest_fix(repo)
     with (repo / ".gitignore").open("a", encoding="utf-8") as ignore:

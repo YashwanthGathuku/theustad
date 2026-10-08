@@ -40,24 +40,48 @@ if [ -n "$event_base" ]; then
     echo "::error title=TheUstad::the checkout is at ${checked_out:-no commit}, which is neither the pull request's merge commit $event_sha nor its head $event_head. Check out the pull request (actions/checkout's default) and commit nothing before this step." >&2
     exit 2
   fi
-  if [ -n "$(git -C "$workspace" status --porcelain --untracked-files=no)" ]; then
-    echo "::error title=TheUstad::tracked files differ from the pull request's commit, so a step before this one changed the code TheUstad would judge." >&2
+  # Read the checkout through a git directory of TheUstad's own, sharing
+  # only the object store. Any step before this one can rewrite the
+  # repository's .git -- skip-worktree and assume-unchanged flags, exclude
+  # files, fsmonitor, clean filters, replace refs -- and each of those hides
+  # a changed or added file from that repository's `git status`.
+  audit_dir="$(mktemp -d)"
+  trap 'rm -rf "$audit_dir"' EXIT
+  objects="$(git -C "$workspace" rev-parse --path-format=absolute --git-path objects)"
+  git init -q --bare "$audit_dir/git"
+  audit() {
+    GIT_DIR="$audit_dir/git" GIT_WORK_TREE="$workspace" \
+      GIT_INDEX_FILE="$audit_dir/index" GIT_ALTERNATE_OBJECT_DIRECTORIES="$objects" \
+      GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 \
+      git -C "$workspace" "$@"
+  }
+  audit read-tree "$checked_out"
+  audit update-index -q --refresh >/dev/null || true
+  changed="$(audit diff-files --name-only)"
+  if [ -n "$changed" ]; then
+    echo "::error title=TheUstad::tracked files differ from the pull request's commit, first $(escape "${changed%%$'\n'*}"), so a step before this one changed the code TheUstad would judge." >&2
     exit 2
   fi
   # The tests run against the disk, so a file the revision does not contain
-  # is judged with it: an untracked one, or one the pull request deleted and
-  # a step put back (ignored or not -- the pull request controls .gitignore).
-  untracked="$(git -C "$workspace" ls-files --others --exclude-standard)"
+  # is judged with it. Only the revision's own .gitignore files decide what
+  # build output may lie around: an untracked one can ignore itself, and
+  # anything else that hides files lives in .git.
+  untracked="$(audit ls-files --others -- ':(glob)**/.gitignore')"
+  if [ -z "$untracked" ]; then
+    untracked="$(audit ls-files --others --exclude-per-directory=.gitignore)"
+  fi
   if [ -n "$untracked" ]; then
     echo "::error title=TheUstad::untracked files are in the checkout, first $(escape "${untracked%%$'\n'*}"). A step before this one added files TheUstad would judge with the change; if your build makes them, list them in .gitignore." >&2
     exit 2
   fi
+  # A file the pull request deleted can come back ignored -- the pull request
+  # controls .gitignore too.
   while IFS= read -r -d '' deleted; do
     if [ -e "$workspace/$deleted" ] || [ -L "$workspace/$deleted" ]; then
       echo "::error title=TheUstad::$(escape "$deleted") is deleted by the pull request but present in the checkout, so a step before this one put it back." >&2
       exit 2
     fi
-  done < <(git -C "$workspace" diff --name-only -z --no-renames --diff-filter=D "$event_base...HEAD")
+  done < <(audit diff --name-only -z --no-renames --diff-filter=D "$event_base...$checked_out")
 fi
 if [ -z "$base" ]; then
   echo "::error title=TheUstad::no base commit. On pull_request events it is the pull request's base; on other events set the 'base' input." >&2
@@ -86,8 +110,10 @@ if [ -n "${THEUSTAD_TIMEOUT:-}" ]; then
   args+=(--timeout "$THEUSTAD_TIMEOUT")
 fi
 
+# A replace ref, which any earlier step can write, would change what the
+# check reads as HEAD's tree without changing HEAD.
 status=0
-"$python" "$action_path/theustad.py" "${args[@]}" || status=$?
+GIT_NO_REPLACE_OBJECTS=1 "$python" "$action_path/theustad.py" "${args[@]}" || status=$?
 
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   verdict="ERROR"
