@@ -151,10 +151,17 @@ that runs TheUstad is still part of the pull request, though, and on
 - Steps before the check that run the pull request's own code, such as
   `pip install -e .` or a setup script, can still change what the tests see,
   in ignored files or outside the checkout. That is the same boundary as the
-  census: code under test runs with the job's permissions.
+  census: code under test runs with the job's permissions. They can also
+  replace what runs the check -- put a `python3` of their own on
+  `$GITHUB_PATH`, or overwrite the action's files -- and an impostor reports
+  whatever it likes. Run no pull request code before this step -- and what
+  the pull request names to install, `-e .` or a requirements file it can
+  edit, is its code -- or run the check where the pull request cannot reach
+  it, as below.
 - That holds only while the pull request's copy still runs this action. One
-  that replaces the step, or points `uses:` somewhere else, decides its own
-  result, which is why `.github/` belongs under `CODEOWNERS` below.
+  that replaces the step, names its own `python`, or points `uses:` somewhere
+  else decides its own result, which is why `.github/` belongs under
+  `CODEOWNERS` below.
 - A pull request that **deletes** the step never runs TheUstad at all. A
   required status check then never reports, so the pull request cannot merge.
   That is why the check must be required.
