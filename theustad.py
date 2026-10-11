@@ -15,7 +15,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, TextIO
 
-from theustadlib import ci, census, claudesettings, enrollment, hookadapter
+from theustadlib import ci, census, claudesettings, codexsettings, enrollment, hookadapter
 from theustadlib.census import CENSUS_EVIDENCE, CENSUS_UNSUPERVISED
 from theustadlib.chain import AuditChain
 from theustadlib.chain import verify as verify_audit_chain
@@ -678,18 +678,31 @@ def build_hook_parser() -> argparse.ArgumentParser:
 
     install_parser = commands.add_parser(
         "install-hooks",
-        help="add TheUstad's SessionStart and Stop hooks to Claude Code user settings",
+        help="add TheUstad's SessionStart and Stop hooks to an agent's user settings",
+    )
+    install_parser.add_argument(
+        "--agent",
+        choices=sorted(HOOK_AGENTS),
+        default="claude",
+        help="the agent whose user settings get the hooks (default: claude)",
     )
     install_parser.add_argument(
         "--settings",
         type=Path,
-        help="settings file; defaults to $CLAUDE_CONFIG_DIR or ~/.claude settings.json",
+        help=(
+            "settings file; defaults to Claude Code's settings.json "
+            "($CLAUDE_CONFIG_DIR or ~/.claude) or Codex's hooks.json "
+            "($CODEX_HOME or ~/.codex)"
+        ),
     )
     install_parser.add_argument(
         "--dry-run", action="store_true", help="print the result without writing it"
     )
     uninstall_parser = commands.add_parser(
-        "uninstall-hooks", help="remove TheUstad's hooks from Claude Code user settings"
+        "uninstall-hooks", help="remove TheUstad's hooks from an agent's user settings"
+    )
+    uninstall_parser.add_argument(
+        "--agent", choices=sorted(HOOK_AGENTS), default="claude"
     )
     uninstall_parser.add_argument("--settings", type=Path)
 
@@ -737,8 +750,18 @@ def _hook_invocation() -> tuple[str, str]:
     )
 
 
+# The agents `install-hooks` writes user-level hooks for, by vendor.
+HOOK_AGENTS = {"claude": "Claude Code", "codex": "Codex"}
+
+
+def _agent_hooks_path(agent: str) -> Path:
+    if agent == codexsettings.VENDOR:
+        return codexsettings.hooks_path()
+    return claudesettings.user_settings_path()
+
+
 def _install_hooks(args: argparse.Namespace) -> int:
-    path = args.settings or claudesettings.user_settings_path()
+    path = args.settings or _agent_hooks_path(args.agent)
     if claudesettings.in_plugin_cache(Path(__file__)):
         raise ValueError(
             "this copy of TheUstad lives in Claude Code's plugin cache, which is "
@@ -747,18 +770,34 @@ def _install_hooks(args: argparse.Namespace) -> int:
             "a clone that stays put."
         )
     current = claudesettings.read_settings(path)
-    updated = claudesettings.with_hooks(current, *_hook_invocation())
+    updated = claudesettings.with_hooks(current, *_hook_invocation(), vendor=args.agent)
     if args.dry_run:
         _console_output(json.dumps(updated, indent=2))
         return 0
     backup = claudesettings.write_settings(path, updated)
-    _console_output(f"INSTALLED Claude Code hooks SessionStart, Stop in {path}")
+    _console_output(
+        f"INSTALLED {HOOK_AGENTS[args.agent]} hooks SessionStart, Stop in {path}"
+    )
     if backup is not None:
         _console_output(f"BACKUP {backup}")
     _console_output(
         f"HOOK_TIMEOUT {claudesettings.HANDLER_TIMEOUT}s ceiling; every enrolled "
         "verifier deadline stays below it"
     )
+    if args.agent == codexsettings.VENDOR:
+        trust = codexsettings.trust_state(path, updated)
+        _console_output(f"CODEX_TRUST {trust}")
+        if trust != "trusted":
+            _console_output(
+                "Codex runs a new hook only after you trust it. Start `codex`, "
+                "run /hooks, and trust both TheUstad hooks; `status --repo PATH` "
+                "then reports CODEX_HOOKS installed. Until then they do nothing."
+            )
+        _console_output(
+            "Next: enroll a repository with `enroll --repo PATH`, then start a "
+            "new Codex session in it."
+        )
+        return 0
     if current.get("disableAllHooks") is True:
         _console_output(
             f"THEUSTAD_WARNING {path} sets disableAllHooks, so these hooks will "
@@ -773,13 +812,15 @@ def _install_hooks(args: argparse.Namespace) -> int:
 
 
 def _uninstall_hooks(args: argparse.Namespace) -> int:
-    path = args.settings or claudesettings.user_settings_path()
+    path = args.settings or _agent_hooks_path(args.agent)
     current = claudesettings.read_settings(path)
-    if not claudesettings.installed_handlers(current):
+    if not claudesettings.installed_handlers(current, args.agent):
         _console_output(f"NOT_INSTALLED {path}")
         return 1
-    backup = claudesettings.write_settings(path, claudesettings.without_hooks(current))
-    _console_output(f"UNINSTALLED Claude Code hooks from {path}")
+    backup = claudesettings.write_settings(
+        path, claudesettings.without_hooks(current, args.agent)
+    )
+    _console_output(f"UNINSTALLED {HOOK_AGENTS[args.agent]} hooks from {path}")
     if backup is not None:
         _console_output(f"BACKUP {backup}")
     return 0
@@ -804,6 +845,49 @@ def _installed_hook_state() -> tuple[
         return path, None, False
     disabled = settings.get("disableAllHooks") is True
     return path, claudesettings.installed_handlers(settings), disabled
+
+
+def _codex_hook_status(repo: str | Path) -> tuple[str, dict[str, list[dict[str, Any]]]]:
+    """The CODEX_HOOKS status line for ``repo``, and the handlers it read.
+
+    Codex runs a user hook only once the user has trusted it, so "installed"
+    here also means trusted: an untrusted TheUstad hook enforces nothing.
+    """
+    try:
+        path = codexsettings.hooks_path()
+    except ValueError:
+        return "CODEX_HOOKS unknown (no home directory; set CODEX_HOME)", {}
+    try:
+        settings = claudesettings.read_settings(path)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return f"CODEX_HOOKS unreadable {path}", {}
+    installed = claudesettings.installed_handlers(settings, codexsettings.VENDOR)
+    state = _hook_state(installed, repo, vendor=codexsettings.VENDOR)
+    if state == "unsafe":
+        return (
+            f"CODEX_HOOKS unsafe {path} (they run TheUstad from inside {repo}; "
+            "install them from a clone outside it)"
+        ), installed
+    if state != "installed":
+        return f"CODEX_HOOKS {state} {path}", installed
+    trust = codexsettings.trust_state(path, settings)
+    if trust == "trusted":
+        return f"CODEX_HOOKS installed {path}", installed
+    if trust == "disabled":
+        return (
+            f"CODEX_HOOKS disabled {path} (turned off in Codex's config.toml, so "
+            "no TheUstad hook runs)"
+        ), installed
+    if trust == "unknown":
+        return (
+            f"CODEX_HOOKS installed {path} (trust unknown: this Python cannot "
+            "read Codex's config.toml; check /hooks in Codex)"
+        ), installed
+    detail = "changed since you trusted them" if trust == "modified" else "not trusted yet"
+    return (
+        f"CODEX_HOOKS untrusted {path} ({detail}; Codex runs them only once you "
+        "trust them: start `codex` and run /hooks)"
+    ), installed
 
 
 def _calibrate(
@@ -865,16 +949,22 @@ def _enroll(args: argparse.Namespace) -> int:
             "lower --timeout"
         )
     settings_path, installed, disabled = _installed_hook_state()
-    for handlers in (installed or {}).values():
-        for installed_handler in handlers:
-            limit = claudesettings.effective_timeout(installed_handler)
-            if limit < hook_timeout:
-                raise ValueError(
-                    f"the TheUstad hooks installed in {settings_path} allow "
-                    f"{limit:g}s, below this repository's {hook_timeout:g}s hook "
-                    "timeout; the host would cancel a Stop that is still "
-                    "verifying. Run `install-hooks` again first."
-                )
+    codex_line, codex_installed = _codex_hook_status(repo)
+    for where, found in (
+        (settings_path, installed),
+        (codexsettings.hooks_path() if codex_installed else None, codex_installed),
+    ):
+        for handlers in (found or {}).values():
+            for installed_handler in handlers:
+                # Claude Code and Codex both default a command hook to 600s.
+                limit = claudesettings.effective_timeout(installed_handler)
+                if limit < hook_timeout:
+                    raise ValueError(
+                        f"the TheUstad hooks installed in {where} allow "
+                        f"{limit:g}s, below this repository's {hook_timeout:g}s "
+                        "hook timeout; the host would cancel a Stop that is "
+                        "still verifying. Run `install-hooks` again first."
+                    )
 
     if args.calibrate:
         p95, timed_out = _calibrate(repo, verifier_argv, args.timeout)
@@ -944,9 +1034,12 @@ def _enroll(args: argparse.Namespace) -> int:
             )
         else:
             _console_output(
-                "HOOKS not installed. Install them once for every repository with: "
+                "HOOKS not installed for Claude Code. Install them once for "
+                "every repository with: "
                 + reinstall
             )
+    if codex_installed:
+        _console_output(codex_line)
     _console_output(
         "Or merge this block into ~/.claude/settings.json yourself, then inspect it with /hooks:"
     )
@@ -989,10 +1082,13 @@ def _status(args: argparse.Namespace) -> int:
         )
     else:
         _console_output(f"CLAUDE_HOOKS {hooks} {settings_path}")
+    _console_output(_codex_hook_status(policy.repo)[0])
     return 0
 
 
-def _hook_state(installed, repo, disabled: bool = False) -> str:
+def _hook_state(
+    installed, repo, disabled: bool = False, vendor: str = "claude"
+) -> str:
     """``disabled``, ``installed``, ``stale``, ``unsafe`` or ``not-installed``.
 
     Only handlers that can start, in the shape ``install-hooks`` writes and
@@ -1007,9 +1103,9 @@ def _hook_state(installed, repo, disabled: bool = False) -> str:
     ):
         return "not-installed"
     handlers = [item for group in installed.values() for item in group]
-    if not all(claudesettings.runnable(item) for item in handlers):
+    if not all(claudesettings.runnable(item, vendor=vendor) for item in handlers):
         return "stale"
-    if not all(claudesettings.runnable(item, repo) for item in handlers):
+    if not all(claudesettings.runnable(item, repo, vendor) for item in handlers):
         return "unsafe"
     return "installed"
 

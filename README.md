@@ -100,13 +100,15 @@ after installation, then follow [the plugin guide](docs/PLUGIN_GUIDE.md).
 | Standalone wrapper | Highest | CI, automation, direct review | `python theustad.py --repo ... --task ...` |
 | Codex plugin | Highest | A protected child coding task in Codex | `$theustad:doctor`, `$theustad:run`, `$theustad:audit` |
 | Claude Code hook (experimental) | Guardrail | Automatic verification when Claude tries to stop | The Claude Code plugin or `install-hooks`, then `enroll`: [Claude Code guide](docs/CLAUDE_CODE.md) |
+| Codex CLI hook (experimental) | Guardrail | Automatic verification when Codex finishes a turn | `install-hooks --agent codex`, trust them in Codex's `/hooks`, then `enroll`: [Codex guide](docs/CODEX.md) |
 
 **Which one?** If agents open pull requests, start with the pull request
 check. It works with Codex, Claude Code, opencode, aider or anything else,
 because it judges the finished change rather than the agent. It reads the
 tests and the policy from the commit the change started from, so the change
-cannot edit its own judge. Add the Claude Code hooks or the Codex plugin when
-you want the agent stopped and sent back while it is still working.
+cannot edit its own judge. Add the Claude Code or Codex hooks, or the Codex
+plugin, when you want the agent stopped and sent back while it is still
+working.
 
 Use one interface per working tree at a time; the pull request check runs in
 CI on the finished change, so it can sit behind any of the others. All modes
@@ -211,11 +213,15 @@ background or scheduled session work is pending, checks protected inputs before
 and after verification, and appends every event to one continuous validated
 audit chain.
 
-Only the Claude Code adapter is implemented. Its fixtures follow the current
-[official hook schema](https://code.claude.com/docs/en/hooks), but a real local
-schema capture and live-fire run are still required before calling a specific
-Claude Code version tested. Codex and other vendor hook adapters remain
-unimplemented until their real payloads and enforcement semantics are captured.
+Two adapters are implemented. The Claude Code adapter's fixtures follow the
+current [official hook schema](https://code.claude.com/docs/en/hooks), but a
+real local schema capture and live-fire run are still required before calling a
+specific Claude Code version tested. The Codex adapter was built from payloads
+recorded from codex-cli 0.162.1, driven against a local stand-in for the model
+API, and `tests/test_codex_live.py` runs a tampered and an honest session
+through that binary; see the [Codex guide](docs/CODEX.md). Other agents' hook
+adapters remain unimplemented until their real payloads and enforcement
+semantics are captured.
 See the [hook-mode and local Codex guide](docs/HOOK_MODE_GUIDE.md).
 The [prototype review](docs/HOOK_MODE_REVIEW.md) records which supplied ideas
 were retained, which attacks were reproduced, and why the old files were not

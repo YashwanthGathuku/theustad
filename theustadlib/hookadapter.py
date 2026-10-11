@@ -139,7 +139,66 @@ def parse_claude(payload: dict[str, Any]) -> HookEvent:
     )
 
 
-ADAPTERS = {"claude": parse_claude}
+def _optional_text(payload: dict[str, Any], key: str) -> str:
+    """A key Codex always sends, as a string or ``null``."""
+    if key not in payload:
+        raise ValueError(f"hook payload requires {key}")
+    value = payload[key]
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"hook payload {key} must be a string or null")
+    return value or ""
+
+
+def parse_codex(payload: dict[str, Any]) -> HookEvent:
+    """Parse Codex CLI's SessionStart or Stop command-hook input.
+
+    Recorded from codex-cli 0.162.1 and checked against the JSON schemas it
+    generates for these hooks; see docs/HOOK_SCHEMAS.md.  Codex sends no
+    background-task fields, and ``last_assistant_message`` may be ``null``.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("hook payload must be a JSON object")
+    hook_name = _required_text(payload, "hook_event_name")
+    event_names = {"SessionStart": "session_start", "Stop": "stop"}
+    try:
+        event = event_names[hook_name]
+    except KeyError as error:
+        raise ValueError(f"unsupported Codex hook event: {hook_name}") from error
+
+    session_id = _required_text(payload, "session_id")
+    for key in ("model", "permission_mode"):
+        _required_text(payload, key)
+    _optional_text(payload, "transcript_path")
+    cwd = Path(_required_text(payload, "cwd")).expanduser().resolve(strict=True)
+    if not cwd.is_dir():
+        raise ValueError(f"hook cwd is not a directory: {cwd}")
+
+    if event == "session_start":
+        return HookEvent(
+            session_id=session_id,
+            cwd=cwd,
+            event=event,
+            source=_required_text(payload, "source"),
+            raw=payload,
+        )
+
+    _required_text(payload, "turn_id")
+    stop_value = payload.get("stop_hook_active")
+    if not isinstance(stop_value, bool):
+        raise ValueError("Stop payload requires boolean stop_hook_active")
+    return HookEvent(
+        session_id=session_id,
+        cwd=cwd,
+        event=event,
+        stop_active=stop_value,
+        last_assistant_message=_optional_text(payload, "last_assistant_message"),
+        raw=payload,
+    )
+
+
+ADAPTERS = {"claude": parse_claude, "codex": parse_codex}
+# The agent each vendor names, for messages that tell its user what to do.
+HOSTS = {"claude": "Claude Code", "codex": "Codex"}
 
 
 def _claim_data(message: str, claims: Sequence[Claim]) -> dict[str, Any]:
@@ -457,7 +516,7 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
             stderr=(
                 "TheUstad: no protected-input baseline is bound to this "
                 "session. SessionStart did not run successfully; restart "
-                "Claude Code with the user-level hooks enabled."
+                f"{HOSTS.get(vendor, vendor)} with the user-level hooks enabled."
             ),
         )
 
@@ -680,6 +739,47 @@ def _plugin_defers(payload: dict[str, Any]) -> bool:
     return claudesettings.covers(payload.get("hook_event_name"), repository=repository)
 
 
+# Codex sets no limit on how often a Stop hook may send the agent back, so a
+# fault that recurs on every Stop would loop -- and spend tokens -- for ever.
+# Claude Code ends a turn after eight consecutive continuations; the same
+# bound applies to faults under Codex.  Verdicts need none: the policy's
+# max_blocks already ends them with RETRY_EXHAUSTED.
+HOST_LOOP_LIMIT = 8
+_UNBOUNDED_HOSTS = frozenset({"codex"})
+
+
+def _fault_streak(vendor: str, payload: Any, *, fault: bool) -> int:
+    """Consecutive faulted Stops of one turn, counting this one if ``fault``.
+
+    A Stop that is not a continuation (``stop_hook_active`` false) starts a
+    new turn, so each turn gets the full bound, as it does under Claude Code.
+    """
+    if vendor not in _UNBOUNDED_HOSTS or not isinstance(payload, dict):
+        return 0
+    if payload.get("hook_event_name") != "Stop":
+        return 0
+    session_id = payload.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        return 0
+    path = enrollment.home() / "faults" / enrollment.session_key(vendor, session_id)
+    previous = 0
+    if payload.get("stop_hook_active") is True:
+        try:
+            previous = int(path.read_text(encoding="ascii"))
+        except (OSError, ValueError):
+            previous = 0
+    streak = previous + 1 if fault else 0
+    try:
+        if streak:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(str(streak), encoding="ascii")
+        else:
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return streak
+
+
 def main(argv: Sequence[str]) -> int:
     """Read one event from stdin. Policy arguments are always forbidden."""
     forbidden = _forbidden_argument(argv)
@@ -696,6 +796,7 @@ def main(argv: Sequence[str]) -> int:
 
     vendor = argv[0]
     expected_event = argv[1] if len(argv) == 2 else None
+    payload: Any = None
     try:
         payload = json.loads(sys.stdin.read())
         if not isinstance(payload, dict):
@@ -709,23 +810,42 @@ def main(argv: Sequence[str]) -> int:
                 return ALLOW
             vendor = "claude"
         response = dispatch(vendor, payload, expected_event=expected_event)
+        _fault_streak(vendor, payload, fault=False)
         # Emitting is inside the guard too: a BrokenPipeError or an
         # unserializable payload here would otherwise escape as exit 1.
         if response.stdout is not None:
             print(json.dumps(response.stdout, sort_keys=True))
-        if response.stderr:
-            print(response.stderr, file=sys.stderr)
+        stderr = response.stderr
+        if response.exit_code == BLOCK and not stderr.strip():
+            # Codex lets a stop through when exit 2 comes with no stderr: the
+            # stderr text is what it sends the agent back to work with.
+            stderr = "TheUstad: blocked; see the audit chain for this session."
+        if stderr:
+            print(stderr, file=sys.stderr)
         return response.exit_code
     except Exception as error:
         # Exit 1 is non-blocking in Claude Code, so an unhandled exception here
         # would let the agent stop with no decision rendered.  Every failure,
-        # expected or not, must still block.
+        # expected or not, must still block -- up to the bound above.
+        try:
+            streak = _fault_streak(vendor, payload, fault=True)
+        except Exception:
+            streak = 0
+        exhausted = streak > HOST_LOOP_LIMIT
         try:
             print(
                 f"TheUstad hook error: {INTERNAL_ERROR} "
                 f"{type(error).__name__}: {error}",
                 file=sys.stderr,
             )
+            if exhausted:
+                print(
+                    f"TheUstad: {streak - 1} consecutive faults in this turn; "
+                    "letting this stop through UNVERIFIED (RETRY_EXHAUSTED). "
+                    "Run `theustad.py status` and fix the hook before trusting "
+                    "this session's work.",
+                    file=sys.stderr,
+                )
         except Exception:  # the stream itself is gone; the exit code still speaks
             pass
-        return BLOCK
+        return ALLOW if exhausted else BLOCK

@@ -67,8 +67,12 @@ def in_plugin_cache(path: Path, environ: Mapping[str, str] | None = None) -> boo
     return True
 
 
-def handler_event(handler: Any) -> str | None:
-    """The event a settings handler runs TheUstad for, or ``None``."""
+def handler_event(handler: Any, vendor: str = "claude") -> str | None:
+    """The event a settings handler runs TheUstad for, or ``None``.
+
+    ``vendor`` is the agent the handler serves: Codex reads hooks in the same
+    shape, and each agent's handlers are told apart by it.
+    """
     if not isinstance(handler, dict) or handler.get("type") != "command":
         return None
     command = handler.get("command")
@@ -78,7 +82,7 @@ def handler_event(handler: Any) -> str | None:
         argv = shlex.split(command)
     except ValueError:
         return None
-    if len(argv) < 4 or argv[-3:-1] != ["hook", "claude"]:
+    if len(argv) < 4 or argv[-3:-1] != ["hook", vendor]:
         return None
     if Path(argv[-4]).name != _CLI_NAME:
         return None
@@ -115,7 +119,9 @@ def _inside(path: str, directory: str) -> bool:
 
 
 def runnable(
-    handler: Mapping[str, Any], repository: str | os.PathLike[str] | None = None
+    handler: Mapping[str, Any],
+    repository: str | os.PathLike[str] | None = None,
+    vendor: str = "claude",
 ) -> bool:
     """Whether a TheUstad settings handler will start, and start TheUstad.
 
@@ -138,7 +144,13 @@ def runnable(
     # Exactly the shape ``handler`` writes. Anything before theustad.py can
     # stop it running -- ``python -c pass theustad.py ...`` runs only
     # ``pass`` -- and anything but Python there never runs it at all.
-    if len(argv) != 5 or not is_python_interpreter(argv[0]):
+    if len(argv) == 9 and argv[:4] == ["test", "-e", argv[5], "&&"]:
+        argv = argv[4:]  # the guard `command` writes for unbounded hosts
+    if (
+        len(argv) != 5
+        or not is_python_interpreter(argv[0])
+        or argv[2:4] != ["hook", vendor]
+    ):
         return False
     interpreter, cli = argv[0], argv[1]
     if not os.path.isabs(interpreter):
@@ -160,7 +172,9 @@ def runnable(
     return True
 
 
-def installed_handlers(settings: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
+def installed_handlers(
+    settings: Mapping[str, Any], vendor: str = "claude"
+) -> dict[str, list[dict[str, Any]]]:
     """TheUstad handlers in ``settings``, by event."""
     found: dict[str, list[dict[str, Any]]] = {}
     hooks = settings.get("hooks")
@@ -174,7 +188,7 @@ def installed_handlers(settings: Mapping[str, Any]) -> dict[str, list[dict[str, 
             if not isinstance(handlers, list):
                 continue
             for handler in handlers:
-                if handler_event(handler) == event:
+                if handler_event(handler, vendor) == event:
                     found.setdefault(event, []).append(handler)
     return found
 
@@ -197,10 +211,26 @@ def read_settings(path: Path) -> dict[str, Any]:
     return settings
 
 
-def handler(python: str, cli: str, event: str) -> dict[str, Any]:
+# Hosts that put no bound on how often a Stop hook may send the agent back.
+# There a missing theustad.py would make Python exit 2 with an error on
+# stderr -- a block -- on every Stop, for ever, so the command first checks
+# the CLI is still there and otherwise exits 1, which lets the stop through.
+GUARDED_VENDORS = frozenset({"codex"})
+
+
+def command(python: str, cli: str, event: str, vendor: str = "claude") -> str:
+    invocation = shlex.join([python, cli, "hook", vendor, event])
+    if vendor in GUARDED_VENDORS:
+        return f"{shlex.join(['test', '-e', cli])} && {invocation}"
+    return invocation
+
+
+def handler(
+    python: str, cli: str, event: str, vendor: str = "claude"
+) -> dict[str, Any]:
     return {
         "type": "command",
-        "command": shlex.join([python, cli, "hook", "claude", event]),
+        "command": command(python, cli, event, vendor),
         "timeout": HANDLER_TIMEOUT,
     }
 
@@ -212,7 +242,7 @@ def _hooks_section(settings: dict[str, Any]) -> dict[str, Any]:
     return hooks
 
 
-def _without_ours(groups: Any, event: str) -> list[Any]:
+def _without_ours(groups: Any, event: str, vendor: str = "claude") -> list[Any]:
     if not isinstance(groups, list):
         raise ValueError(f'hooks "{event}" in Claude Code settings must be a list')
     kept = []
@@ -221,7 +251,7 @@ def _without_ours(groups: Any, event: str) -> list[Any]:
         if not isinstance(handlers, list):
             kept.append(group)
             continue
-        remaining = [item for item in handlers if handler_event(item) is None]
+        remaining = [item for item in handlers if handler_event(item, vendor) is None]
         if len(remaining) == len(handlers):
             kept.append(group)
         elif remaining:
@@ -229,7 +259,9 @@ def _without_ours(groups: Any, event: str) -> list[Any]:
     return kept
 
 
-def with_hooks(settings: Mapping[str, Any], python: str, cli: str) -> dict[str, Any]:
+def with_hooks(
+    settings: Mapping[str, Any], python: str, cli: str, vendor: str = "claude"
+) -> dict[str, Any]:
     """Return ``settings`` with exactly one TheUstad handler per event.
 
     Any earlier TheUstad handler -- from another checkout, or with an older
@@ -239,13 +271,13 @@ def with_hooks(settings: Mapping[str, Any], python: str, cli: str) -> dict[str, 
     updated = copy.deepcopy(dict(settings))
     hooks = _hooks_section(updated)
     for event in HOOK_EVENTS:
-        groups = _without_ours(hooks.get(event, []), event)
-        groups.append({"hooks": [handler(python, cli, event)]})
+        groups = _without_ours(hooks.get(event, []), event, vendor)
+        groups.append({"hooks": [handler(python, cli, event, vendor)]})
         hooks[event] = groups
     return updated
 
 
-def without_hooks(settings: Mapping[str, Any]) -> dict[str, Any]:
+def without_hooks(settings: Mapping[str, Any], vendor: str = "claude") -> dict[str, Any]:
     """Return ``settings`` with every TheUstad handler removed."""
     updated = copy.deepcopy(dict(settings))
     hooks = updated.get("hooks")
@@ -254,7 +286,7 @@ def without_hooks(settings: Mapping[str, Any]) -> dict[str, Any]:
     for event in list(hooks):
         if not isinstance(hooks[event], list):
             continue
-        groups = _without_ours(hooks[event], event)
+        groups = _without_ours(hooks[event], event, vendor)
         if groups:
             hooks[event] = groups
         else:
