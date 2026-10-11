@@ -748,22 +748,29 @@ HOST_LOOP_LIMIT = 8
 _UNBOUNDED_HOSTS = frozenset({"codex"})
 
 
-def _fault_streak(vendor: str, payload: Any, *, fault: bool) -> int:
+def _fault_streak(
+    vendor: str, payload: Any, event: str | None, *, fault: bool
+) -> int:
     """Consecutive faulted Stops of one turn, counting this one if ``fault``.
 
-    A Stop that is not a continuation (``stop_hook_active`` false) starts a
-    new turn, so each turn gets the full bound, as it does under Claude Code.
+    Only a Stop that says it is not a continuation (``stop_hook_active``
+    false) starts a new turn, so each turn gets the full bound, as it does
+    under Claude Code.  The payload may be the very thing that faulted, so
+    nothing else in it is relied on: the event can come from the command
+    line, and a payload that names no session counts under a shared key.
     """
-    if vendor not in _UNBOUNDED_HOSTS or not isinstance(payload, dict):
+    if vendor not in _UNBOUNDED_HOSTS:
         return 0
-    if payload.get("hook_event_name") != "Stop":
+    if not isinstance(payload, dict):
+        payload = {}
+    if (event or payload.get("hook_event_name")) != "Stop":
         return 0
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
-        return 0
+        session_id = "\0unidentified"
     path = enrollment.home() / "faults" / enrollment.session_key(vendor, session_id)
     previous = 0
-    if payload.get("stop_hook_active") is True:
+    if payload.get("stop_hook_active") is not False:
         try:
             previous = int(path.read_text(encoding="ascii"))
         except (OSError, ValueError):
@@ -824,7 +831,7 @@ def main(argv: Sequence[str]) -> int:
         # Only a response that reached the host ends the streak; one that
         # failed to emit is a fault like any other.
         try:
-            _fault_streak(vendor, payload, fault=False)
+            _fault_streak(vendor, payload, expected_event, fault=False)
         except Exception:
             pass
         return response.exit_code
@@ -833,7 +840,7 @@ def main(argv: Sequence[str]) -> int:
         # would let the agent stop with no decision rendered.  Every failure,
         # expected or not, must still block -- up to the bound above.
         try:
-            streak = _fault_streak(vendor, payload, fault=True)
+            streak = _fault_streak(vendor, payload, expected_event, fault=True)
         except Exception:
             streak = 0
         exhausted = streak > HOST_LOOP_LIMIT

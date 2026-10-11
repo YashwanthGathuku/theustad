@@ -189,6 +189,34 @@ def test_a_recurring_fault_cannot_loop_codex_for_ever(monkeypatch, capsys):
     assert _faulted_stop(monkeypatch, "codex", active=False) == hookadapter.BLOCK
 
 
+@pytest.mark.parametrize(
+    "stdin",
+    [
+        json.dumps({"hook_event_name": "Stop", "session_id": "loop-3"}),
+        json.dumps({"hook_event_name": "Stop", "session_id": "loop-3", "stop_hook_active": "true"}),
+        json.dumps({"hook_event_name": "Stop", "stop_hook_active": True}),
+        json.dumps({"session_id": "loop-3", "stop_hook_active": None}),
+        "not json",
+    ],
+)
+def test_a_malformed_stop_cannot_loop_codex_for_ever(monkeypatch, capsys, stdin):
+    # Only a payload that says it starts a new turn resets the count; one
+    # too broken to say so is counted as a continuation.
+    def broken(*_args, **_kwargs):
+        raise ValueError("malformed")
+
+    def stop():
+        monkeypatch.setattr(hookadapter, "dispatch", broken)
+        monkeypatch.setattr(sys, "stdin", io.StringIO(stdin))
+        return hookadapter.main(["codex", "Stop"])
+
+    results = [stop() for _ in range(9)]
+
+    assert results[:8] == [hookadapter.BLOCK] * 8
+    assert results[8] == hookadapter.ALLOW
+    assert "UNVERIFIED" in capsys.readouterr().err
+
+
 def test_a_response_that_cannot_be_emitted_counts_toward_the_bound(monkeypatch, capsys):
     # Dispatch succeeds but its output never reaches Codex, on every Stop.
     def unprintable(*_args, **_kwargs):
