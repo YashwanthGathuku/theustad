@@ -339,7 +339,16 @@ evidence this run has that the acceptance tests ran. Reason: ...
 ```
 
 Spell the verifier out to get it supervised, or pass `--no-census` to say the
-absence is intended. The bytecode guard makes the opposite trade for the same
+absence is intended.
+
+It also stands down when the baseline run does not finish: pytest exits with
+anything but 0 or 1 (`pytest.exit()`, a collection error, an internal error)
+or the run times out. The report such a run leaves holds only the tests before
+the stop, and a skip that later hides the rest would leave nothing missing. A
+run that ends itself early with a success code, `pytest.exit(returncode=0)`,
+cannot be told apart from a complete one.
+
+The bytecode guard makes the opposite trade for the same
 ambiguity: where several tokens could be the interpreter, **all** of them must
 be safe, so an unreadable launcher cannot hide an isolated Python behind an
 option's operand.

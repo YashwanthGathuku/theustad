@@ -298,6 +298,9 @@ class TheUstadRunner:
                 self.timeout,
             )
             collected = census.parse_report(probe_report)
+            incomplete = census.incomplete_run(probe)
+            if incomplete:
+                collected = None
             if collected and not census.required(collected):
                 # Nothing in the baseline actually ran, so there is nothing to
                 # supervise -- and saying so beats arming on an empty promise.
@@ -317,7 +320,9 @@ class TheUstadRunner:
                 # standing down looks exactly like having nothing to report, so
                 # it is said out loud rather than left to the audit chain.
                 self.output(
-                    CENSUS_UNSUPERVISED.format(detail="no usable baseline report")
+                    CENSUS_UNSUPERVISED.format(
+                        detail=incomplete or "no usable baseline report"
+                    )
                 )
 
         rounds: list[RoundResult] = []

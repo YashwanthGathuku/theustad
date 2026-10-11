@@ -23,6 +23,7 @@ from pathlib import Path, PurePath
 from typing import Sequence
 
 from .verifier import (
+    VerificationResult,
     ignores_bytecode_environment,
     interpreter_index,
     launcher_operands,
@@ -227,6 +228,31 @@ def clear_report(path: str | Path) -> None:
         report.unlink()
         return
     report.unlink(missing_ok=True)
+
+
+# pytest's exit codes for a run that reached every collected test: 0 when
+# all passed, 1 when some failed.  Every other code stopped part way --
+# 2 interrupted (``pytest.exit()``, a collection error), 3 internal error,
+# 4 usage error, 5 nothing collected -- and the report it leaves is a partial
+# census: the tests after the stop are missing from it, and a later skip
+# that hides them would leave nothing missing at all.
+COMPLETE_RUN_EXIT_CODES = frozenset({0, 1})
+
+
+def incomplete_run(result: VerificationResult) -> str | None:
+    """Why a baseline run cannot serve as the census, or ``None``.
+
+    A run that ends itself early with a success code, such as
+    ``pytest.exit(returncode=0)``, cannot be told apart from a complete one.
+    """
+    if result.timed_out:
+        return "the baseline run timed out"
+    if result.exit_code not in COMPLETE_RUN_EXIT_CODES:
+        return (
+            "the baseline run stopped part way "
+            f"(pytest exit code {result.exit_code})"
+        )
+    return None
 
 
 def parse_report(path: str | Path) -> dict[str, str] | None:

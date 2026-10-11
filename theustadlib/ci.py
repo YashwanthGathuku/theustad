@@ -353,7 +353,7 @@ def _census_baseline(
     git_output(repo, "worktree", "add", "--detach", "--quiet", str(worktree), pristine)
     try:
         census.clear_report(report)
-        verifier_runner(
+        probe = verifier_runner(
             census.probe_argv(policy.verifier_argv, report),
             worktree,
             policy.timeout,
@@ -367,6 +367,9 @@ def _census_baseline(
             shutil.rmtree(worktree, ignore_errors=True)
             git_output(repo, "worktree", "prune")
 
+    incomplete = census.incomplete_run(probe)
+    if incomplete:
+        return None, 0, f"{incomplete} on the base commit"
     if not collected:
         return None, 0, "the base commit's test run wrote no report"
     carrying = census.required(collected)

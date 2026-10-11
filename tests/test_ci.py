@@ -94,6 +94,20 @@ def test_honest_change_is_verified(repo, tmp_path):
     assert "FINAL VERIFIED" in lines
 
 
+def test_a_base_run_that_stops_part_way_does_not_arm_the_census(repo, tmp_path):
+    git(repo, "switch", "-q", "main")
+    (repo / "tests" / "test_0_stop.py").write_text(
+        "import pytest\n\n\ndef test_stop():\n    pytest.exit('stop')\n", encoding="utf-8"
+    )
+    commit_all(repo, "a suite that stops itself")
+    git(repo, "switch", "-q", "-C", "agent")
+
+    result, _ = run(repo, tmp_path)
+
+    assert not result.census_armed
+    assert "stopped part way (pytest exit code 2) on the base commit" in result.census_detail
+
+
 def test_unrepaired_change_is_falsified(repo, tmp_path):
     (repo / "app" / "notes.py").write_text("# nothing fixed\n", encoding="utf-8")
     commit_all(repo, "no fix")

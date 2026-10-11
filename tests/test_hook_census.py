@@ -196,6 +196,28 @@ def test_the_finding_names_itself_in_the_audit(tmp_path):
     assert verdict["data"]["verifier_exit_code"] == 0
 
 
+def test_a_baseline_that_stops_part_way_does_not_arm(tmp_path):
+    # pytest.exit() in the code under test ends the baseline after the first
+    # module; the tests after it would be missing from the census.
+    session = _Session(
+        tmp_path,
+        extra={
+            "test_a_first.py": "def test_first():\n    assert True\n",
+            "test_b_stop.py": "from app.broken import stop\n\n\ndef test_stop():\n    stop()\n",
+        },
+        broken_module="import pytest\n\n\ndef stop():\n    pytest.exit('stop')\n",
+    )
+
+    start = next(
+        record
+        for record in session.audit()
+        if record["data"].get("event") == "session_start"
+    )
+
+    assert start["data"]["census"]["armed"] is False
+    assert "stopped part way (pytest exit code 2)" in start["data"]["census"]["detail"]
+
+
 def test_a_disabled_census_is_recorded_as_such_at_session_start(tmp_path):
     session = _Session(tmp_path, "--no-census")
 

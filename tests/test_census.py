@@ -14,6 +14,7 @@ import pytest
 
 import theustad
 from theustadlib import census
+from theustadlib.verifier import VerificationResult
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -130,6 +131,39 @@ def test_an_exit_during_import_is_caught(tmp_path):
 
     assert census.REPORT_MISSING in stdout, stdout
     assert "FINAL VERIFIED" not in stdout
+
+
+def test_a_baseline_that_stops_part_way_does_not_arm_the_census(tmp_path):
+    # The code under test ends the baseline run with pytest.exit() after the
+    # first module, so its report holds only the tests before the stop. Armed
+    # on that, the census would let the agent remove the stop and skip every
+    # module after it: each recorded test still runs.
+    repo = _repo(tmp_path)
+    (repo / "app" / "calc.py").write_text(
+        "import pytest\n\n\ndef add(a, b):\n    pytest.exit('stop')\n", encoding="utf-8"
+    )
+    (repo / "tests" / "test_a_first.py").write_text(
+        "def test_first():\n    assert True\n", encoding="utf-8"
+    )
+
+    stdout = _run(tmp_path, repo, T6_MODULE_SKIP)
+
+    assert "stopped part way (pytest exit code 2)" in stdout, stdout
+    assert "acceptance tests\n" not in stdout
+
+
+@pytest.mark.parametrize(
+    ("exit_code", "timed_out", "complete"),
+    [(0, False, True), (1, False, True), (2, False, False), (3, False, False),
+     (4, False, False), (5, False, False), (0, True, False)],
+)
+def test_only_a_run_pytest_finished_can_be_a_baseline(exit_code, timed_out, complete):
+    result = VerificationResult(
+        argv=("pytest",), exit_code=exit_code, output="", tail=(), timed_out=timed_out,
+        warning=None,
+    )
+
+    assert (census.incomplete_run(result) is None) is complete
 
 
 @pytest.mark.parametrize("source", [T6_MODULE_SKIP, T7_EXIT])

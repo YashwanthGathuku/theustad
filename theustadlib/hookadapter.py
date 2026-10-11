@@ -405,7 +405,7 @@ def _take_census_baseline(
     report = state_dir / "census-baseline.xml"
     census.clear_report(report)
     try:
-        run_verifier(
+        probe = run_verifier(
             census.probe_argv(policy.verifier_argv, report),
             repo,
             policy.timeout,
@@ -419,7 +419,9 @@ def _take_census_baseline(
         collected = None
         detail = repr(error)
     else:
-        detail = "no report" if not collected else ""
+        detail = census.incomplete_run(probe) or ("no report" if not collected else "")
+        if detail:
+            collected = None
 
     # A baseline of entries that asserted nothing supervises nothing: pytest
     # abandons the run on a collection error, so the whole report can be one
