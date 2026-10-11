@@ -404,7 +404,8 @@ Out of scope until after submission:
 - Marketplace or token system.
 - LLM claim classification.
 - Multiple verifiers and HTML dashboard.
-- Codex and additional vendor hook adapters before live schema capture.
+- Additional vendor hook adapters before live schema capture. (Codex's was
+  captured from codex-cli 0.162.1; see `docs/HOOK_SCHEMAS.md`.)
 - Native Windows support.
 - HMAC, signatures, or remote attestation.
 

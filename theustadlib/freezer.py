@@ -4,6 +4,7 @@ import hashlib
 import os
 import shutil
 import stat
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
@@ -210,6 +211,148 @@ def freeze(
                 path=relative,
                 file_type=file_type,
                 sha256=sha256,
+                mode=mode,
+                snapshot_path=snapshot_path,
+            )
+    except Exception:
+        shutil.rmtree(snapshot_dir, ignore_errors=True)
+        raise
+
+    return Manifest(
+        repo=repository,
+        state_dir=state,
+        snapshot_dir=snapshot_dir,
+        patterns=normalized_patterns,
+        entries=entries,
+    )
+
+
+_GIT_FILE_MODES = {"100644": 0o644, "100755": 0o755}
+
+
+def git_output(
+    repo: str | os.PathLike[str], *args: str, stdin: bytes | None = None
+) -> bytes:
+    """Run one git command in ``repo`` and return its raw stdout."""
+    git = shutil.which("git")
+    if git is None:
+        raise RuntimeError("git is not installed or not on PATH")
+    result = subprocess.run(
+        [git, *args],
+        cwd=Path(repo),
+        input=stdin,
+        capture_output=True,
+        shell=False,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"git {args[0]} failed: {detail or result.returncode}")
+    return result.stdout
+
+
+def _tree_entries(repo: Path, commit: str) -> list[tuple[str, str, str, str]]:
+    """Return ``(mode, type, object id, path)`` for every entry a commit records."""
+    output = git_output(repo, "ls-tree", "-r", "-z", "--full-tree", commit)
+    entries = []
+    for record in output.split(b"\0"):
+        if not record:
+            continue
+        header, _, raw_path = record.partition(b"\t")
+        mode, object_type, object_id = header.decode("ascii").split(" ")
+        entries.append((mode, object_type, object_id, os.fsdecode(raw_path)))
+    return entries
+
+
+def _read_blobs(repo: Path, object_ids: list[str]) -> dict[str, bytes]:
+    """Read blobs in one ``git cat-file --batch`` call."""
+    if not object_ids:
+        return {}
+    unique = list(dict.fromkeys(object_ids))
+    output = git_output(
+        repo, "cat-file", "--batch", stdin="".join(f"{oid}\n" for oid in unique).encode()
+    )
+    blobs: dict[str, bytes] = {}
+    position = 0
+    for object_id in unique:
+        newline = output.index(b"\n", position)
+        header = output[position:newline].decode("ascii").split(" ")
+        if len(header) != 3 or header[0] != object_id or header[1] != "blob":
+            raise RuntimeError(f"git did not return blob {object_id}: {header}")
+        size = int(header[2])
+        start = newline + 1
+        blobs[object_id] = output[start : start + size]
+        position = start + size + 1
+    return blobs
+
+
+def freeze_commit(
+    repo: str | os.PathLike[str],
+    commit: str,
+    patterns: Iterable[str],
+    state_dir: str | os.PathLike[str],
+) -> Manifest:
+    """Snapshot protected inputs as ``commit`` records them, not as the disk holds them.
+
+    The working tree a CI job checks out belongs to the change under review,
+    and so do any files its build steps wrote. A baseline read from that disk
+    would already contain whatever the change did to its own tests. Git
+    objects of the commit the change started from cannot be edited by it.
+
+    The manifest is the same shape :func:`freeze` produces, so :func:`check`
+    and :func:`restore` judge and repair the working tree against it unchanged.
+    """
+    repository = Path(repo).resolve(strict=True)
+    state = Path(state_dir).resolve(strict=False)
+    if _is_within(state, repository):
+        raise ValueError("state_dir must be outside the repository")
+    state.mkdir(parents=True, exist_ok=True)
+    state = state.resolve(strict=True)
+    if _is_within(state, repository):
+        raise ValueError("state_dir must be outside the repository")
+
+    normalized_patterns = _normalize_patterns(patterns)
+    protected = []
+    directories: set[str] = set()
+    for mode, object_type, object_id, relative in _tree_entries(repository, commit):
+        parts = relative.split("/")
+        for depth in range(1, len(parts)):
+            parent = "/".join(parts[:depth])
+            if _matches(parent, normalized_patterns):
+                directories.add(parent)
+        if not _matches(relative, normalized_patterns):
+            continue
+        if mode == "120000":
+            raise ValueError(f"protected path is a symlink at {commit}: {relative}")
+        if object_type != "blob" or mode not in _GIT_FILE_MODES:
+            raise ValueError(
+                f"unsupported protected path type at {commit}: {relative} ({mode})"
+            )
+        protected.append((relative, object_id, _GIT_FILE_MODES[mode]))
+
+    blobs = _read_blobs(repository, [object_id for _, object_id, _ in protected])
+    snapshot_dir = Path(tempfile.mkdtemp(prefix="snapshot-", dir=state))
+    entries: dict[str, ManifestEntry] = {}
+    try:
+        for relative in sorted(directories):
+            entries[relative] = ManifestEntry(
+                path=relative,
+                file_type="directory",
+                sha256=None,
+                mode=0o755,
+                snapshot_path=None,
+            )
+        for relative, object_id, mode in protected:
+            content = blobs[object_id]
+            snapshot_path = snapshot_dir / "files" / Path(relative)
+            snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+            with snapshot_path.open("xb") as snapshot_file:
+                snapshot_file.write(content)
+            os.chmod(snapshot_path, mode)
+            entries[relative] = ManifestEntry(
+                path=relative,
+                file_type="file",
+                sha256=hashlib.sha256(content).hexdigest(),
                 mode=mode,
                 snapshot_path=snapshot_path,
             )

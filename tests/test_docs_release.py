@@ -21,7 +21,7 @@ def test_readme_uses_canonical_release_links_and_commands():
         "PASS_NO_CLAIM",
         "custom verifier",
         "WSL-native",
-        "AGPL-3.0-or-later",
+        "[MIT License](LICENSE)",
     )
     for value in required:
         assert value in text

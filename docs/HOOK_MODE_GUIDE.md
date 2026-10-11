@@ -6,9 +6,10 @@ This guide deliberately separates two tools:
   development of this repository.
 - **Claude Code** is the first lifecycle-hook host implemented by this branch.
 
-There is no Codex lifecycle-hook adapter in this increment. Do not copy the
-Claude parser and rename it: capture Codex's real event payloads and enforcement
-semantics first.
+Codex now has its own lifecycle-hook adapter, built from payloads captured
+from codex-cli 0.162.1; see the [Codex guide](CODEX.md). The rule that produced
+it still holds for every other vendor: do not copy a parser and rename it, but
+capture the agent's real event payloads and enforcement semantics first.
 
 ## 1. Use WSL 2 on Windows
 
@@ -77,8 +78,8 @@ compact/resume SessionStart events, uses Claude Stop.last_assistant_message,
 reopens one validated audit chain, checks tampering before and after the
 verifier, and surfaces retry exhaustion as non-verified. Run the focused hook
 tests and then the complete test suite. Report concrete failures with command
-output before editing. Do not add a Codex hook adapter without live payload
-fixtures.
+output before editing. Do not add another vendor's hook adapter without live
+payload fixtures.
 ```
 
 Then ask Codex for a dedicated review:
@@ -100,8 +101,16 @@ export THEUSTAD_HOME="$HOME/.theustad"
 cd ~/code/theustad
 "$THEUSTAD_PYTHON" theustad.py enroll \
   --repo "$HOME/code/disposable-target" \
-  --max-blocks 5
+  --max-blocks 5 \
+  --calibrate
 ```
+
+`enroll` emits an explicit `timeout` in the hook configuration and refuses a
+verifier deadline that is not at least 15 seconds below it. A cancelled hook
+has its output discarded and renders no decision, so a verifier that can
+outlive the hook is a fail-open path. `--calibrate` times the verifier three
+times before enrolling and names the minimum safe `--hook-timeout` when the
+budget does not fit.
 
 For a non-pytest project, enroll an explicit argv-only verifier and protect its
 inputs:

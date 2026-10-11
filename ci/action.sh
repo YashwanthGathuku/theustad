@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# Runs TheUstad's CI check for the composite GitHub Action in action.yml.
+#
+# Inputs arrive as environment variables and are only ever expanded inside
+# double quotes, so a branch name, a pull request title or an input value
+# cannot become shell syntax here.
+set -euo pipefail
+
+# Git takes configuration, repository locations and pathspec rules from GIT_*
+# variables, and any step before this one can set those for the rest of the
+# job through $GITHUB_ENV: GIT_CONFIG_COUNT can turn core.fileMode off so a
+# changed mode goes unseen, GIT_DIR can point every command at another
+# repository. None of TheUstad's git commands, here or in the check itself,
+# take them from there.
+while IFS= read -r name; do
+  unset "$name"
+done < <(compgen -e | grep '^GIT_' || true)
+
+# A path is the pull request's to name, so it is escaped before it reaches a
+# workflow command: a newline in it would otherwise start a command of its own.
+escape() {
+  local value="${1//%/%25}"
+  value="${value//$'\r'/%0D}"
+  printf '%s' "${value//$'\n'/%0A}"
+}
+
+python="${THEUSTAD_PYTHON:-python3}"
+action_path="${GITHUB_ACTION_PATH:?GITHUB_ACTION_PATH is not set}"
+workspace="${GITHUB_WORKSPACE:?GITHUB_WORKSPACE is not set}"
+
+base="${THEUSTAD_BASE:-}"
+event_base="${THEUSTAD_EVENT_BASE:-}"
+event_head="${THEUSTAD_EVENT_HEAD:-}"
+event_sha="${THEUSTAD_EVENT_SHA:-}"
+checked_out="$(git -C "$workspace" rev-parse HEAD 2>/dev/null || true)"
+if [ -n "$event_base" ]; then
+  # On a pull request GitHub runs the pull request's own workflow, so what
+  # that workflow says to compare against is part of the change under
+  # review: `base: HEAD` would make the change its own baseline. The event's
+  # base and revisions come from GitHub, not from the workflow.
+  if [ -n "$base" ] && [ "$base" != "$event_base" ]; then
+    echo "::warning title=TheUstad::ignoring the 'base' input on a pull request; comparing against the pull request's base commit $event_base" >&2
+  fi
+  base="$event_base"
+  revision="the pull request's commit"
+  # Judge exactly the revision GitHub attaches this check to: its merge
+  # commit, or the pull request's head. A step before this one could
+  # otherwise commit, or just write, a passing tree on top and have that
+  # judged instead.
+  if [ -z "$checked_out" ] || { [ "$checked_out" != "$event_sha" ] && [ "$checked_out" != "$event_head" ]; }; then
+    echo "::error title=TheUstad::the checkout is at ${checked_out:-no commit}, which is neither the pull request's merge commit $event_sha nor its head $event_head. Check out the pull request (actions/checkout's default) and commit nothing before this step." >&2
+    exit 2
+  fi
+elif [ -n "$event_sha" ]; then
+  # Any other event judges the commit it was raised for, by the same rule.
+  revision="commit $event_sha"
+  if [ "$checked_out" != "$event_sha" ]; then
+    echo "::error title=TheUstad::the checkout is at ${checked_out:-no commit}, not $event_sha, the commit this run is for. Check it out (actions/checkout's default) and commit nothing before this step." >&2
+    exit 2
+  fi
+fi
+if [ -z "$base" ]; then
+  echo "::error title=TheUstad::no base commit. On pull_request events it is the pull request's base; on other events set the 'base' input." >&2
+  exit 2
+fi
+if [ -n "$event_sha" ]; then
+  base_commit="$(GIT_NO_REPLACE_OBJECTS=1 git -C "$workspace" rev-parse --verify --quiet --end-of-options "$base^{commit}" 2>/dev/null || true)"
+  if [ -z "$base_commit" ]; then
+    echo "::error title=TheUstad::the base $(escape "$base") is not a commit in the checkout. Check out with fetch-depth: 0." >&2
+    exit 2
+  fi
+  # Read the checkout through a git directory of TheUstad's own, sharing
+  # only the object store. Any step before this one can rewrite the
+  # repository's .git -- skip-worktree and assume-unchanged flags, exclude
+  # files, fsmonitor, clean filters, replace refs -- and each of those hides
+  # a changed or added file from that repository's `git status`.
+  audit_dir="$(mktemp -d)"
+  trap 'rm -rf "$audit_dir"' EXIT
+  objects="$(git -C "$workspace" rev-parse --path-format=absolute --git-path objects)"
+  git init -q --bare "$audit_dir/git"
+  audit() {
+    GIT_DIR="$audit_dir/git" GIT_WORK_TREE="$workspace" \
+      GIT_INDEX_FILE="$audit_dir/index" GIT_ALTERNATE_OBJECT_DIRECTORIES="$objects" \
+      GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_NO_REPLACE_OBJECTS=1 \
+      git -C "$workspace" "$@"
+  }
+  audit read-tree "$checked_out"
+  audit update-index -q --refresh >/dev/null || true
+  changed="$(audit diff-files --name-only)"
+  if [ -n "$changed" ]; then
+    echo "::error title=TheUstad::tracked files differ from $revision, first $(escape "${changed%%$'\n'*}"), so a step before this one changed the code TheUstad would judge." >&2
+    exit 2
+  fi
+  # The tests run against the disk, so a file the revision does not contain
+  # is judged with it. Only the revision's own .gitignore files decide what
+  # build output may lie around: an untracked one can ignore itself, and
+  # anything else that hides files lives in .git.
+  untracked="$(audit ls-files --others -- ':(glob)**/.gitignore')"
+  if [ -z "$untracked" ]; then
+    untracked="$(audit ls-files --others --exclude-per-directory=.gitignore)"
+  fi
+  if [ -n "$untracked" ]; then
+    echo "::error title=TheUstad::untracked files are in the checkout, first $(escape "${untracked%%$'\n'*}"). A step before this one added files TheUstad would judge with the change; if your build makes them, list them in .gitignore." >&2
+    exit 2
+  fi
+  # A file the change deleted can come back ignored -- the change controls
+  # .gitignore too.
+  while IFS= read -r -d '' deleted; do
+    if [ -e "$workspace/$deleted" ] || [ -L "$workspace/$deleted" ]; then
+      echo "::error title=TheUstad::$(escape "$deleted") is deleted by the change but present in the checkout, so a step before this one put it back." >&2
+      exit 2
+    fi
+  done < <(audit diff --name-only -z --no-renames --diff-filter=D "$base_commit...$checked_out")
+fi
+state="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/theustad-ci"
+result="$state/result.json"
+mkdir -p "$state"
+rm -f "$result"
+
+args=(ci --repo "$workspace" --base "$base" --ephemeral --state-dir "$state" --json "$result")
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  args+=(--summary "$GITHUB_STEP_SUMMARY")
+fi
+if [ -n "${THEUSTAD_VERIFIER:-}" ]; then
+  args+=(--verifier "$THEUSTAD_VERIFIER")
+fi
+if [ -n "${THEUSTAD_PROTECT_ADD:-}" ]; then
+  read -r -a extra <<< "$THEUSTAD_PROTECT_ADD"
+  args+=(--protect-add "${extra[@]}")
+fi
+if [ "${THEUSTAD_CENSUS:-true}" = "false" ]; then
+  args+=(--no-census)
+fi
+if [ -n "${THEUSTAD_TIMEOUT:-}" ]; then
+  args+=(--timeout "$THEUSTAD_TIMEOUT")
+fi
+
+# A replace ref, which any earlier step can write, would change what the
+# check reads as HEAD's tree without changing HEAD.
+status=0
+GIT_NO_REPLACE_OBJECTS=1 "$python" "$action_path/theustad.py" "${args[@]}" || status=$?
+
+verdict="ERROR"
+audit_log=""
+if [ -f "$result" ]; then
+  read_field='import json, sys; data = json.load(open(sys.argv[1], encoding="utf-8")); value = data[sys.argv[2]]; print((value.get(sys.argv[3]) if sys.argv[3] else value) or "")'
+  verdict="$("$python" -c "$read_field" "$result" verdict "" 2>/dev/null || true)"
+  audit_log="$("$python" -c "$read_field" "$result" audit log 2>/dev/null || true)"
+fi
+verdict="${verdict:-ERROR}"
+# Only a VERIFIED result passes. An interpreter that exits 0 without running
+# the check -- a `python` input naming `true`, say -- leaves no result, and
+# that must not read as success.
+if [ "$status" -eq 0 ] && [ "$verdict" != "VERIFIED" ]; then
+  echo "::error title=TheUstad::the check exited 0 but reported $(escape "$verdict"), not VERIFIED; failing closed." >&2
+  status=2
+fi
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  {
+    echo "verdict=$verdict"
+    echo "audit-log=$audit_log"
+    echo "result=$result"
+  } >> "$GITHUB_OUTPUT"
+fi
+exit "$status"

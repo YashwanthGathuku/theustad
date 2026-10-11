@@ -14,7 +14,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Sequence
 
-from . import enrollment
+from . import census, claudesettings, enrollment
+from .census import CENSUS_EVIDENCE, CENSUS_UNSUPERVISED
 from .chain import AuditChain
 from .claims import Claim, find_claims
 from .freezer import Tampering, check, freeze, restore
@@ -23,6 +24,7 @@ from .verifier import VerificationResult, run as run_verifier
 
 ALLOW = 0
 BLOCK = 2
+INTERNAL_ERROR = "INTERNAL_ERROR"
 FORBIDDEN_POLICY_OPTIONS = frozenset(
     {
         "--verifier",
@@ -137,7 +139,66 @@ def parse_claude(payload: dict[str, Any]) -> HookEvent:
     )
 
 
-ADAPTERS = {"claude": parse_claude}
+def _optional_text(payload: dict[str, Any], key: str) -> str:
+    """A key Codex always sends, as a string or ``null``."""
+    if key not in payload:
+        raise ValueError(f"hook payload requires {key}")
+    value = payload[key]
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"hook payload {key} must be a string or null")
+    return value or ""
+
+
+def parse_codex(payload: dict[str, Any]) -> HookEvent:
+    """Parse Codex CLI's SessionStart or Stop command-hook input.
+
+    Recorded from codex-cli 0.162.1 and checked against the JSON schemas it
+    generates for these hooks; see docs/HOOK_SCHEMAS.md.  Codex sends no
+    background-task fields, and ``last_assistant_message`` may be ``null``.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("hook payload must be a JSON object")
+    hook_name = _required_text(payload, "hook_event_name")
+    event_names = {"SessionStart": "session_start", "Stop": "stop"}
+    try:
+        event = event_names[hook_name]
+    except KeyError as error:
+        raise ValueError(f"unsupported Codex hook event: {hook_name}") from error
+
+    session_id = _required_text(payload, "session_id")
+    for key in ("model", "permission_mode"):
+        _required_text(payload, key)
+    _optional_text(payload, "transcript_path")
+    cwd = Path(_required_text(payload, "cwd")).expanduser().resolve(strict=True)
+    if not cwd.is_dir():
+        raise ValueError(f"hook cwd is not a directory: {cwd}")
+
+    if event == "session_start":
+        return HookEvent(
+            session_id=session_id,
+            cwd=cwd,
+            event=event,
+            source=_required_text(payload, "source"),
+            raw=payload,
+        )
+
+    _required_text(payload, "turn_id")
+    stop_value = payload.get("stop_hook_active")
+    if not isinstance(stop_value, bool):
+        raise ValueError("Stop payload requires boolean stop_hook_active")
+    return HookEvent(
+        session_id=session_id,
+        cwd=cwd,
+        event=event,
+        stop_active=stop_value,
+        last_assistant_message=_optional_text(payload, "last_assistant_message"),
+        raw=payload,
+    )
+
+
+ADAPTERS = {"claude": parse_claude, "codex": parse_codex}
+# The agent each vendor names, for messages that tell its user what to do.
+HOSTS = {"claude": "Claude Code", "codex": "Codex"}
 
 
 def _claim_data(message: str, claims: Sequence[Claim]) -> dict[str, Any]:
@@ -157,6 +218,14 @@ def _tamper_data(stage: str, tampering: Tampering) -> dict[str, Any]:
         "deleted": tampering.deleted,
         "added": tampering.added,
     }
+
+
+NO_PROTECTED_INPUTS = (
+    "TheUstad WARNING: the enrolled protected patterns matched nothing in "
+    "this repository, so TAMPERED can never be reported for this session. "
+    "Re-run `theustad.py enroll --protect-add ...` against the real test and "
+    "verifier-configuration paths."
+)
 
 
 def _system_message(message: str) -> HookResponse:
@@ -248,6 +317,12 @@ def handle_session_start(event: HookEvent, vendor: str) -> HookResponse:
         return HookResponse(ALLOW)
 
     repo = Path(policy.repo).resolve(strict=True)
+
+    if event.source in enrollment.CONTINUATION_SOURCES:
+        refusal = _unbound_continuation(event, vendor, repo)
+        if refusal is not None:
+            return refusal
+
     state_dir = enrollment.session_state_dir(repo, vendor, event.session_id)
     try:
         state_dir.mkdir(parents=True, exist_ok=False)
@@ -260,6 +335,8 @@ def handle_session_start(event: HookEvent, vendor: str) -> HookResponse:
     enrollment.save_session_policy(state_dir, policy)
     enrollment.reset_blocks(state_dir)
 
+    census_summary = _take_census_baseline(repo, state_dir, policy)
+
     audit = AuditChain(state_dir / "logs")
     audit.append(
         round_number=0,
@@ -271,6 +348,7 @@ def handle_session_start(event: HookEvent, vendor: str) -> HookResponse:
             "repo": str(repo),
             "protected_files": len(manifest.entries),
             "verifier": list(policy.verifier_argv),
+            "census": census_summary,
         },
     )
     enrollment.save_binding(
@@ -282,7 +360,116 @@ def handle_session_start(event: HookEvent, vendor: str) -> HookResponse:
             audit_path=str(audit.path.resolve(strict=True)),
         )
     )
+    # Both of these are indistinguishable from a real baseline at Stop time,
+    # so they have to be said out loud while the session can still be fixed.
+    warnings: list[str] = []
+    if not manifest.entries:
+        audit.append(
+            round_number=0,
+            kind="warning",
+            data={
+                "message": NO_PROTECTED_INPUTS,
+                "patterns": list(policy.patterns),
+            },
+        )
+        warnings.append(NO_PROTECTED_INPUTS)
+    if policy.census and not census_summary["armed"]:
+        message = CENSUS_UNSUPERVISED.format(detail=census_summary["detail"])
+        audit.append(
+            round_number=0,
+            kind="warning",
+            data={"message": message, "verifier": list(policy.verifier_argv)},
+        )
+        warnings.append(message)
+
+    if warnings:
+        return _system_message("\n\n".join(warnings))
     return HookResponse(ALLOW)
+
+
+def _take_census_baseline(
+    repo: Path, state_dir: Path, policy: enrollment.Policy
+) -> dict[str, Any]:
+    """Record which acceptance tests exist before the agent touches anything.
+
+    It has to happen here rather than at Stop: a module-level skip planted
+    during the session removes tests from collection, so a baseline taken
+    afterwards is already the shrunken one.  Enrollment is too early for the
+    opposite reason -- the repository moves on between enrolling and a
+    session, and a stale baseline would report honestly retired tests as
+    missing.
+    """
+    if not (policy.census and census.is_pytest_verifier(policy.verifier_argv)):
+        return {"armed": False, "tests": 0, "detail": "not supervising"}
+
+    report = state_dir / "census-baseline.xml"
+    census.clear_report(report)
+    try:
+        probe = run_verifier(
+            census.probe_argv(policy.verifier_argv, report),
+            repo,
+            policy.timeout,
+        )
+        collected = census.parse_report(report)
+        # The baseline report is a ready-made forgery: a round's report only
+        # has to look like it, and the verifier process can read and write
+        # this directory.  Nothing needs it after this point.
+        census.clear_report(report)
+    except Exception as error:  # a probe failure must not block the session
+        collected = None
+        detail = repr(error)
+    else:
+        detail = census.incomplete_run(probe) or ("no report" if not collected else "")
+        if detail:
+            collected = None
+
+    # A baseline of entries that asserted nothing supervises nothing: pytest
+    # abandons the run on a collection error, so the whole report can be one
+    # synthetic entry. Arming on that would be silent non-supervision.
+    carrying = census.required(collected or {})
+    if not carrying and collected:
+        detail = "the baseline recorded no test that ran"
+        collected = None
+
+    if collected:
+        census.save_baseline(state_dir, collected)
+    return {
+        "armed": bool(collected),
+        "tests": len(carrying),
+        "detail": detail,
+    }
+
+
+def _unbound_continuation(
+    event: HookEvent, vendor: str, repo: Path
+) -> HookResponse | None:
+    """Refuse to baseline afresh for a continuation TheUstad cannot place.
+
+    De-duplicating on ``vendor + session_id`` covers the continuations that
+    keep their id and misses any that do not.  A ``clear`` or ``fork``
+    arriving with an unknown id would otherwise freeze the tree *as it now
+    stands* -- after the agent has been editing it -- and reset the retry
+    counter, which SPEC 4.8a forbids in as many words.  Demonstrated: a
+    protected test deleted, then a continuation, and the new baseline had
+    four entries where the real one had five.
+
+    Continuing that session properly would mean carrying its manifest, its
+    snapshots and its counters across, which the manifest's recorded state
+    directory and snapshot paths do not allow to be copied.  So this refuses
+    instead: no new baseline is written, ``Stop`` finds no binding and blocks
+    through the path that already exists for it, and the operator is told to
+    restart rather than being silently unprotected.
+    """
+    if enrollment.adoptable_state(repo) is None:
+        return None  # nothing was running: a genuine first start
+
+    return _system_message(
+        f"TheUstad: this {event.source} continues a session that is not bound "
+        "to it, and an unfinished baseline already exists for this repository. "
+        "Re-freezing now would take the protected inputs as they stand after "
+        "editing, and reset the retry counter. No new baseline was created; "
+        "restart Claude Code to begin a session TheUstad can verify."
+    )
 
 
 def _retry_exhausted(
@@ -307,11 +494,15 @@ def _retry_exhausted(
 
 
 def _verdict(
-    claims: Sequence[Claim], verification: VerificationResult
+    claims: Sequence[Claim],
+    verification: VerificationResult,
+    census_result: census.CensusResult | None = None,
 ) -> HookVerdict:
     if verification.timed_out:
         return HookVerdict.VERIFIER_TIMEOUT
-    if verification.exit_code == 0:
+    # A census failure means the exit code is not evidence, so it cannot
+    # carry the round to VERIFIED -- the same rule the wrapper applies.
+    if verification.exit_code == 0 and not census_result:
         return HookVerdict.VERIFIED if claims else HookVerdict.PASS_NO_CLAIM
     return HookVerdict.FALSIFIED if claims else HookVerdict.INCOMPLETE
 
@@ -327,7 +518,7 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
             stderr=(
                 "TheUstad: no protected-input baseline is bound to this "
                 "session. SessionStart did not run successfully; restart "
-                "Claude Code with the user-level hooks enabled."
+                f"{HOSTS.get(vendor, vendor)} with the user-level hooks enabled."
             ),
         )
 
@@ -375,12 +566,44 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
         data=_claim_data(message, claims),
     )
 
+    baseline = census.load_baseline(state_dir)
+    if policy.census and baseline is None:
+        # Either the census never armed, which SessionStart warned about, or
+        # the baseline has gone since. Nothing here can tell those apart --
+        # that needs the state integrity this does not have yet -- but the
+        # round must not simply verify on the exit code with no trace of the
+        # difference.
+        audit.append(
+            round_number=round_number,
+            kind="warning",
+            data={
+                "message": CENSUS_UNSUPERVISED.format(
+                    detail="no baseline is bound to this session at Stop"
+                ),
+                "verifier": list(policy.verifier_argv),
+            },
+        )
+
+    report = state_dir / f"census-{round_number}.xml"
+    census.clear_report(report)
     verification: VerificationResult | None = None
     verifier_error: Exception | None = None
+    census_result: census.CensusResult | None = None
     try:
-        verification = run_verifier(policy.verifier_argv, repo, policy.timeout)
+        verification = run_verifier(
+            census.report_argv(policy.verifier_argv, report)
+            if baseline is not None
+            else policy.verifier_argv,
+            repo,
+            policy.timeout,
+        )
     except Exception as error:  # verifier launch failure must fail closed
         verifier_error = error
+    else:
+        if baseline is not None:
+            census_result = census.compare(
+                baseline, census.parse_report(report), verification.exit_code
+            )
 
     post = check(repo, manifest)
     if post:
@@ -406,7 +629,7 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
     if verification is None:  # pragma: no cover - defensive invariant
         raise RuntimeError("verifier produced neither a result nor an error")
 
-    verdict = _verdict(claims, verification)
+    verdict = _verdict(claims, verification, census_result)
     audit.append(
         round_number=round_number,
         kind="verdict",
@@ -418,6 +641,8 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
             "claims": len(claims),
             "stop_hook_active": event.stop_active,
             "evidence_tail": list(verification.tail),
+            "census": census_result.reason if census_result else None,
+            "census_detail": census_result.detail if census_result else "",
         },
     )
 
@@ -437,8 +662,25 @@ def handle_stop(event: HookEvent, vendor: str) -> HookResponse:
 
     enrollment.bump_blocks(state_dir)
     evidence = "\n".join(verification.tail) or "Verifier produced no output."
+    # Only when the verifier actually reported success: under -x, a collection
+    # error or a timeout the exit code is already the failure, and telling the
+    # agent the verifier passed sends it after the wrong thing.
+    census_decided = bool(census_result) and verification.exit_code == 0
+    if census_decided:
+        evidence = (
+            CENSUS_EVIDENCE.format(
+                reason=census_result.reason, detail=census_result.detail
+            )
+            + "\n\n"
+            + evidence
+        )
     if verdict is HookVerdict.PASS_NO_CLAIM:
         guidance = "State an explicit completion status only when the task is done."
+    elif census_decided:
+        guidance = (
+            "Make the acceptance tests run again, then state the completion "
+            "status."
+        )
     else:
         guidance = "Fix the reported failures and continue the task."
     return HookResponse(
@@ -481,6 +723,72 @@ def _forbidden_argument(argv: Sequence[str]) -> str | None:
     return None
 
 
+def _plugin_defers(payload: dict[str, Any]) -> bool:
+    """Whether the plugin's copy should leave this event to settings hooks.
+
+    Only to a handler outside the enrolled repository: one inside it runs
+    whatever the agent under verification left there. When the repository
+    cannot be told, the plugin acts rather than defers.
+    """
+    cwd = payload.get("cwd")
+    repository = None
+    if isinstance(cwd, str) and cwd:
+        try:
+            policy = enrollment.find_policy(cwd)
+        except Exception:
+            return False
+        repository = policy.repo if policy is not None else None
+    return claudesettings.covers(payload.get("hook_event_name"), repository=repository)
+
+
+# Codex sets no limit on how often a Stop hook may send the agent back, so a
+# fault that recurs on every Stop would loop -- and spend tokens -- for ever.
+# Claude Code ends a turn after eight consecutive continuations; the same
+# bound applies to faults under Codex.  Verdicts need none: the policy's
+# max_blocks already ends them with RETRY_EXHAUSTED.
+HOST_LOOP_LIMIT = 8
+_UNBOUNDED_HOSTS = frozenset({"codex"})
+
+
+def _fault_streak(
+    vendor: str, payload: Any, event: str | None, *, fault: bool
+) -> int:
+    """Consecutive faulted Stops of one turn, counting this one if ``fault``.
+
+    Only a Stop that says it is not a continuation (``stop_hook_active``
+    false) starts a new turn, so each turn gets the full bound, as it does
+    under Claude Code.  The payload may be the very thing that faulted, so
+    nothing else in it is relied on: the event can come from the command
+    line, and a payload that names no session counts under a shared key.
+    """
+    if vendor not in _UNBOUNDED_HOSTS:
+        return 0
+    if not isinstance(payload, dict):
+        payload = {}
+    if (event or payload.get("hook_event_name")) != "Stop":
+        return 0
+    session_id = payload.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        session_id = "\0unidentified"
+    path = enrollment.home() / "faults" / enrollment.session_key(vendor, session_id)
+    previous = 0
+    if payload.get("stop_hook_active") is not False:
+        try:
+            previous = int(path.read_text(encoding="ascii"))
+        except (OSError, ValueError):
+            previous = 0
+    streak = previous + 1 if fault else 0
+    try:
+        if streak:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(str(streak), encoding="ascii")
+        else:
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return streak
+
+
 def main(argv: Sequence[str]) -> int:
     """Read one event from stdin. Policy arguments are always forbidden."""
     forbidden = _forbidden_argument(argv)
@@ -497,17 +805,61 @@ def main(argv: Sequence[str]) -> int:
 
     vendor = argv[0]
     expected_event = argv[1] if len(argv) == 2 else None
+    payload: Any = None
     try:
         payload = json.loads(sys.stdin.read())
         if not isinstance(payload, dict):
             raise ValueError("hook payload must be a JSON object")
+        if vendor == claudesettings.PLUGIN_VENDOR:
+            # The Claude Code plugin and user settings can both carry these
+            # hooks, and Claude Code runs a plugin's copy separately. Two
+            # handlers for one session would verify twice and race on its
+            # audit chain, so the plugin's copy defers to an installed one.
+            if _plugin_defers(payload):
+                return ALLOW
+            vendor = "claude"
         response = dispatch(vendor, payload, expected_event=expected_event)
-    except (json.JSONDecodeError, OSError, RuntimeError, ValueError) as error:
-        print(f"TheUstad hook error: {error}", file=sys.stderr)
-        return BLOCK
-
-    if response.stdout is not None:
-        print(json.dumps(response.stdout, sort_keys=True))
-    if response.stderr:
-        print(response.stderr, file=sys.stderr)
-    return response.exit_code
+        # Emitting is inside the guard too: a BrokenPipeError or an
+        # unserializable payload here would otherwise escape as exit 1.
+        if response.stdout is not None:
+            print(json.dumps(response.stdout, sort_keys=True))
+        stderr = response.stderr
+        if response.exit_code == BLOCK and not stderr.strip():
+            # Codex lets a stop through when exit 2 comes with no stderr: the
+            # stderr text is what it sends the agent back to work with.
+            stderr = "TheUstad: blocked; see the audit chain for this session."
+        if stderr:
+            print(stderr, file=sys.stderr)
+        # Only a response that reached the host ends the streak; one that
+        # failed to emit is a fault like any other.
+        try:
+            _fault_streak(vendor, payload, expected_event, fault=False)
+        except Exception:
+            pass
+        return response.exit_code
+    except Exception as error:
+        # Exit 1 is non-blocking in Claude Code, so an unhandled exception here
+        # would let the agent stop with no decision rendered.  Every failure,
+        # expected or not, must still block -- up to the bound above.
+        try:
+            streak = _fault_streak(vendor, payload, expected_event, fault=True)
+        except Exception:
+            streak = 0
+        exhausted = streak > HOST_LOOP_LIMIT
+        try:
+            print(
+                f"TheUstad hook error: {INTERNAL_ERROR} "
+                f"{type(error).__name__}: {error}",
+                file=sys.stderr,
+            )
+            if exhausted:
+                print(
+                    f"TheUstad: {streak - 1} consecutive faults in this turn; "
+                    "letting this stop through UNVERIFIED (RETRY_EXHAUSTED). "
+                    "Run `theustad.py status` and fix the hook before trusting "
+                    "this session's work.",
+                    file=sys.stderr,
+                )
+        except Exception:  # the stream itself is gone; the exit code still speaks
+            pass
+        return ALLOW if exhausted else BLOCK

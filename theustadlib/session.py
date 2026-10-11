@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
+from .childenv import child_environment
 from .events import extract_agent_text, extract_thread_id, parse_line
 
 
@@ -186,6 +187,7 @@ class AgentSession:
             bufsize=1,
             shell=False,
             start_new_session=os.name == "posix",
+            env=child_environment(),
         )
         if process.stdout is None:
             _terminate_process_group(process)

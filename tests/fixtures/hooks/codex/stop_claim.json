@@ -1,0 +1,11 @@
+{
+  "session_id": "01a1289d-dd27-7282-a033-430d96455142",
+  "turn_id": "01a1289d-dd4b-7382-a567-34b5524c76bb",
+  "transcript_path": "/home/fixture/.codex/sessions/2026/10/11/rollout-2026-10-11T01-39-56-01a1289d-dd27-7282-a033-430d96455142.jsonl",
+  "cwd": "/tmp/theustad-fixture-repo",
+  "hook_event_name": "Stop",
+  "model": "gpt-6.1-sol",
+  "permission_mode": "bypassPermissions",
+  "stop_hook_active": false,
+  "last_assistant_message": "All done, the tests pass."
+}

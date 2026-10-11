@@ -23,6 +23,12 @@ from .freezer import DEFAULT_PATTERNS, Manifest, ManifestEntry
 DEFAULT_HOME = "~/.theustad"
 POLICY_VERSION = 1
 MAX_CLAUDE_BLOCKS = 7
+# A host that cancels a hook at its timeout discards the hook's output and
+# renders no decision, so a verifier allowed to outlive the hook turns a
+# blocking result into a silent pass.  The verifier deadline must therefore
+# sit strictly below the hook timeout, with room for TheUstad's own work.
+MIN_HOOK_MARGIN = 15.0
+_MARGIN_TOLERANCE = 1e-6
 HOOK_PATTERNS = (
     *DEFAULT_PATTERNS,
     ".claude/settings.json",
@@ -154,6 +160,8 @@ class Policy:
     timeout: float = 300.0
     max_blocks: int = 5
     require_claim: bool = False
+    hook_timeout: float | None = None
+    census: bool = True
     version: int = POLICY_VERSION
 
     def __post_init__(self) -> None:
@@ -181,6 +189,29 @@ class Policy:
             )
         if not isinstance(self.require_claim, bool):
             raise ValueError("require_claim must be boolean")
+        hook_timeout = self.hook_timeout
+        if hook_timeout is None:
+            hook_timeout = self.timeout + MIN_HOOK_MARGIN
+        if isinstance(hook_timeout, bool) or not isinstance(
+            hook_timeout, (int, float)
+        ):
+            raise ValueError("hook timeout must be numeric")
+        hook_timeout = float(hook_timeout)
+        if not math.isfinite(hook_timeout) or hook_timeout <= 0:
+            raise ValueError("hook timeout must be positive")
+        # Binary floating point makes (t + 15.0) - t land just under 15.0 for
+        # many values, so an exact comparison would reject the margin this
+        # class itself derives.  Compare against the sum with a tolerance.
+        required = self.timeout + MIN_HOOK_MARGIN
+        if hook_timeout < required - _MARGIN_TOLERANCE:
+            raise ValueError(
+                f"hook timeout {hook_timeout:g}s leaves less than "
+                f"{MIN_HOOK_MARGIN:g}s above the {self.timeout:g}s verifier "
+                "deadline; the host would cancel the hook and render no "
+                f"decision. Use --hook-timeout {math.ceil(required)} "
+                "or lower --timeout."
+            )
+        object.__setattr__(self, "hook_timeout", hook_timeout)
         if isinstance(self.version, bool) or not isinstance(self.version, int):
             raise ValueError("policy version must be an integer")
         if self.version != POLICY_VERSION:
@@ -198,6 +229,7 @@ class Policy:
             verifier_argv = value["verifier_argv"]
             patterns = value.get("patterns", list(HOOK_PATTERNS))
             require_claim = value.get("require_claim", False)
+            supervise = value.get("census", True)
             if not isinstance(verifier_argv, list) or not all(
                 isinstance(item, str) for item in verifier_argv
             ):
@@ -208,6 +240,8 @@ class Policy:
                 raise ValueError("patterns must be a string array")
             if not isinstance(require_claim, bool):
                 raise ValueError("require_claim must be boolean")
+            if not isinstance(supervise, bool):
+                raise ValueError("census must be boolean")
             return cls(
                 repo=str(value["repo"]),
                 verifier_argv=tuple(verifier_argv),
@@ -215,6 +249,12 @@ class Policy:
                 timeout=float(value.get("timeout", 300.0)),
                 max_blocks=int(value.get("max_blocks", 5)),
                 require_claim=require_claim,
+                census=supervise,
+                hook_timeout=(
+                    float(value["hook_timeout"])
+                    if value.get("hook_timeout") is not None
+                    else None
+                ),
                 version=int(value.get("version", POLICY_VERSION)),
             )
         except (KeyError, TypeError, ValueError) as error:
@@ -410,6 +450,41 @@ def save_binding(binding: SessionBinding) -> Path:
     return _atomic_json(expected, binding.to_dict())
 
 
+# A SessionStart that continues something rather than beginning it.  The
+# specification is explicit that these must never re-freeze a changed
+# protected tree or reset the retry counter (SPEC 4.8a).
+CONTINUATION_SOURCES = frozenset({"resume", "clear", "compact", "fork"})
+
+
+def adoptable_state(repo: str | os.PathLike[str]) -> Path | None:
+    """The most recent unfinished session state for this repository.
+
+    A continuation whose session id TheUstad has not bound would otherwise
+    start a fresh baseline from a tree the agent has already been editing.
+    Taking over the existing state keeps the manifest, the block count, the
+    census baseline and the audit chain that session was working under.
+
+    A session that reached a terminal verdict is not adopted: it is finished,
+    and a genuinely new session should baseline for itself.
+    """
+    root = repository_state_dir(repo)
+    if not root.is_dir():
+        return None
+    candidates = [
+        directory
+        for directory in root.iterdir()
+        if directory.is_dir()
+        and (directory / "manifest.json").is_file()
+        and terminal_verdict(directory) is None
+    ]
+    if not candidates:
+        return None
+    # Most recently touched: the continuation came from the session that was
+    # running, and an older baseline would hold the agent to a tree that has
+    # legitimately moved on.
+    return max(candidates, key=lambda directory: directory.stat().st_mtime)
+
+
 def load_binding(vendor: str, session_id: str) -> SessionBinding | None:
     value = _read_json(binding_path(vendor, session_id))
     if value is None:
@@ -457,7 +532,12 @@ def mark_terminal(state_dir: Path, verdict: str) -> None:
 
 def terminal_verdict(state_dir: Path) -> str | None:
     value = _read_json(state_dir / "terminal.json")
-    return str(value["verdict"]) if value else None
+    if value is None:
+        return None
+    try:
+        return str(value["verdict"])
+    except KeyError as error:
+        raise ValueError("invalid terminal verdict record") from error
 
 
 def audit_paths(repo: str | os.PathLike[str]) -> list[Path]:

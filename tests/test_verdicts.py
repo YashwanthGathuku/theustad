@@ -107,6 +107,9 @@ def _run_theustad(
         timeout=2,
         verifier_runner=verifier_runner,
         output=output.append,
+        # These tests drive a scripted verifier that writes no test report.
+        # The census is exercised against real pytest in its own tests.
+        with_census=False,
         **kwargs,
     )
     return runner.run(), output

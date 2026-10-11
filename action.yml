@@ -1,0 +1,66 @@
+name: TheUstad CI check
+description: >-
+  Re-run the acceptance tests a pull request started from, unedited, against
+  its code. Fails when the change edits those tests or does not really pass.
+author: Yashwanth Gathuku
+branding:
+  icon: shield
+  color: green
+
+inputs:
+  base:
+    description: >-
+      Base branch or commit, for events that are not pull requests. On a pull
+      request the pull request's own base commit is always used.
+    required: false
+    default: ''
+  verifier:
+    description: >-
+      Verifier command, run without a shell. Defaults to "verifier" in
+      .theustad.json at the base commit, then isolated pytest.
+    required: false
+    default: ''
+  protect-add:
+    description: Extra protected patterns, separated by spaces.
+    required: false
+    default: ''
+  census:
+    description: Set to "false" to skip the pytest test census (one test run on the base commit).
+    required: false
+    default: 'true'
+  timeout:
+    description: Seconds the tests may run, each time they run.
+    required: false
+    default: ''
+  python:
+    description: Python 3.10+ that runs TheUstad and, unless a verifier is set, the tests.
+    required: false
+    default: python3
+
+outputs:
+  verdict:
+    description: VERIFIED, FALSIFIED, TAMPERED, VERIFIER_TIMEOUT, or ERROR.
+    value: ${{ steps.check.outputs.verdict }}
+  audit-log:
+    description: Path of the SHA-256 audit chain for this run.
+    value: ${{ steps.check.outputs.audit-log }}
+  result:
+    description: Path of the JSON result.
+    value: ${{ steps.check.outputs.result }}
+
+runs:
+  using: composite
+  steps:
+    - id: check
+      shell: bash
+      env:
+        THEUSTAD_BASE: ${{ inputs.base }}
+        THEUSTAD_EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+        THEUSTAD_EVENT_HEAD: ${{ github.event.pull_request.head.sha }}
+        THEUSTAD_EVENT_SHA: ${{ github.sha }}
+        THEUSTAD_VERIFIER: ${{ inputs.verifier }}
+        THEUSTAD_PROTECT_ADD: ${{ inputs.protect-add }}
+        THEUSTAD_CENSUS: ${{ inputs.census }}
+        THEUSTAD_TIMEOUT: ${{ inputs.timeout }}
+        THEUSTAD_PYTHON: ${{ inputs.python }}
+      run: bash "$GITHUB_ACTION_PATH/ci/action.sh"
