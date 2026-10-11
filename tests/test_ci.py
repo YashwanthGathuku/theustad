@@ -757,12 +757,17 @@ def test_a_push_check_names_a_base_it_cannot_find(repo, tmp_path):
 
 
 @posix_only
-@pytest.mark.parametrize("python", ["true", "/bin/true"])
+@pytest.mark.parametrize("python", ["true", "stub"])
 def test_an_interpreter_that_runs_nothing_does_not_pass(repo, tmp_path, python):
     # A pull request's workflow can name any `python`; one that exits 0
     # without running the check leaves no result, and that is not a pass.
     honest_fix(repo)
     commit_all(repo, "fix")
+    if python == "stub":
+        stub = tmp_path / "python"
+        stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        stub.chmod(0o755)
+        python = str(stub)
 
     completed, outputs, _ = run_action(repo, tmp_path, THEUSTAD_PYTHON=python)
 
