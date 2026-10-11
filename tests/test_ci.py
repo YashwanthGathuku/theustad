@@ -757,6 +757,21 @@ def test_a_push_check_names_a_base_it_cannot_find(repo, tmp_path):
 
 
 @posix_only
+@pytest.mark.parametrize("python", ["true", "/bin/true"])
+def test_an_interpreter_that_runs_nothing_does_not_pass(repo, tmp_path, python):
+    # A pull request's workflow can name any `python`; one that exits 0
+    # without running the check leaves no result, and that is not a pass.
+    honest_fix(repo)
+    commit_all(repo, "fix")
+
+    completed, outputs, _ = run_action(repo, tmp_path, THEUSTAD_PYTHON=python)
+
+    assert completed.returncode == 2
+    assert outputs["verdict"] == "ERROR"
+    assert "not VERIFIED; failing closed" in completed.stderr
+
+
+@posix_only
 def test_action_requires_a_base(repo, tmp_path):
     completed, outputs, _ = run_action(repo, tmp_path, THEUSTAD_BASE="")
 

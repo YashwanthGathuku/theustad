@@ -140,14 +140,22 @@ fi
 status=0
 GIT_NO_REPLACE_OBJECTS=1 "$python" "$action_path/theustad.py" "${args[@]}" || status=$?
 
+verdict="ERROR"
+audit_log=""
+if [ -f "$result" ]; then
+  read_field='import json, sys; data = json.load(open(sys.argv[1], encoding="utf-8")); value = data[sys.argv[2]]; print((value.get(sys.argv[3]) if sys.argv[3] else value) or "")'
+  verdict="$("$python" -c "$read_field" "$result" verdict "" 2>/dev/null || true)"
+  audit_log="$("$python" -c "$read_field" "$result" audit log 2>/dev/null || true)"
+fi
+verdict="${verdict:-ERROR}"
+# Only a VERIFIED result passes. An interpreter that exits 0 without running
+# the check -- a `python` input naming `true`, say -- leaves no result, and
+# that must not read as success.
+if [ "$status" -eq 0 ] && [ "$verdict" != "VERIFIED" ]; then
+  echo "::error title=TheUstad::the check exited 0 but reported $(escape "$verdict"), not VERIFIED; failing closed." >&2
+  status=2
+fi
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
-  verdict="ERROR"
-  audit_log=""
-  if [ -f "$result" ]; then
-    read_field='import json, sys; data = json.load(open(sys.argv[1], encoding="utf-8")); value = data[sys.argv[2]]; print((value.get(sys.argv[3]) if sys.argv[3] else value) or "")'
-    verdict="$("$python" -c "$read_field" "$result" verdict "")"
-    audit_log="$("$python" -c "$read_field" "$result" audit log)"
-  fi
   {
     echo "verdict=$verdict"
     echo "audit-log=$audit_log"
