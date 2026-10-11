@@ -22,6 +22,7 @@ base="${THEUSTAD_BASE:-}"
 event_base="${THEUSTAD_EVENT_BASE:-}"
 event_head="${THEUSTAD_EVENT_HEAD:-}"
 event_sha="${THEUSTAD_EVENT_SHA:-}"
+checked_out="$(git -C "$workspace" rev-parse HEAD 2>/dev/null || true)"
 if [ -n "$event_base" ]; then
   # On a pull request GitHub runs the pull request's own workflow, so what
   # that workflow says to compare against is part of the change under
@@ -31,13 +32,31 @@ if [ -n "$event_base" ]; then
     echo "::warning title=TheUstad::ignoring the 'base' input on a pull request; comparing against the pull request's base commit $event_base" >&2
   fi
   base="$event_base"
+  revision="the pull request's commit"
   # Judge exactly the revision GitHub attaches this check to: its merge
   # commit, or the pull request's head. A step before this one could
   # otherwise commit, or just write, a passing tree on top and have that
   # judged instead.
-  checked_out="$(git -C "$workspace" rev-parse HEAD 2>/dev/null || true)"
   if [ -z "$checked_out" ] || { [ "$checked_out" != "$event_sha" ] && [ "$checked_out" != "$event_head" ]; }; then
     echo "::error title=TheUstad::the checkout is at ${checked_out:-no commit}, which is neither the pull request's merge commit $event_sha nor its head $event_head. Check out the pull request (actions/checkout's default) and commit nothing before this step." >&2
+    exit 2
+  fi
+elif [ -n "$event_sha" ]; then
+  # Any other event judges the commit it was raised for, by the same rule.
+  revision="commit $event_sha"
+  if [ "$checked_out" != "$event_sha" ]; then
+    echo "::error title=TheUstad::the checkout is at ${checked_out:-no commit}, not $event_sha, the commit this run is for. Check it out (actions/checkout's default) and commit nothing before this step." >&2
+    exit 2
+  fi
+fi
+if [ -z "$base" ]; then
+  echo "::error title=TheUstad::no base commit. On pull_request events it is the pull request's base; on other events set the 'base' input." >&2
+  exit 2
+fi
+if [ -n "$event_sha" ]; then
+  base_commit="$(GIT_NO_REPLACE_OBJECTS=1 git -C "$workspace" rev-parse --verify --quiet --end-of-options "$base^{commit}" 2>/dev/null || true)"
+  if [ -z "$base_commit" ]; then
+    echo "::error title=TheUstad::the base $(escape "$base") is not a commit in the checkout. Check out with fetch-depth: 0." >&2
     exit 2
   fi
   # Read the checkout through a git directory of TheUstad's own, sharing
@@ -59,7 +78,7 @@ if [ -n "$event_base" ]; then
   audit update-index -q --refresh >/dev/null || true
   changed="$(audit diff-files --name-only)"
   if [ -n "$changed" ]; then
-    echo "::error title=TheUstad::tracked files differ from the pull request's commit, first $(escape "${changed%%$'\n'*}"), so a step before this one changed the code TheUstad would judge." >&2
+    echo "::error title=TheUstad::tracked files differ from $revision, first $(escape "${changed%%$'\n'*}"), so a step before this one changed the code TheUstad would judge." >&2
     exit 2
   fi
   # The tests run against the disk, so a file the revision does not contain
@@ -74,18 +93,14 @@ if [ -n "$event_base" ]; then
     echo "::error title=TheUstad::untracked files are in the checkout, first $(escape "${untracked%%$'\n'*}"). A step before this one added files TheUstad would judge with the change; if your build makes them, list them in .gitignore." >&2
     exit 2
   fi
-  # A file the pull request deleted can come back ignored -- the pull request
-  # controls .gitignore too.
+  # A file the change deleted can come back ignored -- the change controls
+  # .gitignore too.
   while IFS= read -r -d '' deleted; do
     if [ -e "$workspace/$deleted" ] || [ -L "$workspace/$deleted" ]; then
-      echo "::error title=TheUstad::$(escape "$deleted") is deleted by the pull request but present in the checkout, so a step before this one put it back." >&2
+      echo "::error title=TheUstad::$(escape "$deleted") is deleted by the change but present in the checkout, so a step before this one put it back." >&2
       exit 2
     fi
-  done < <(audit diff --name-only -z --no-renames --diff-filter=D "$event_base...$checked_out")
-fi
-if [ -z "$base" ]; then
-  echo "::error title=TheUstad::no base commit. On pull_request events it is the pull request's base; on other events set the 'base' input." >&2
-  exit 2
+  done < <(audit diff --name-only -z --no-renames --diff-filter=D "$base_commit...$checked_out")
 fi
 state="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/theustad-ci"
 result="$state/result.json"

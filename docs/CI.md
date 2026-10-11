@@ -142,9 +142,11 @@ that runs TheUstad is still part of the pull request, though, and on
   GitHub reports, ignoring the `base` input. It judges only the revision
   GitHub reports, the merge commit or the pull request's head, with tracked
   files unchanged and no untracked files beyond those `.gitignore` names, so
-  the workflow cannot point either side of the comparison somewhere else. It
-  reads the checkout through a git directory of its own, because flags and
-  settings a step writes into `.git` can hide a change from `git status`.
+  the workflow cannot point either side of the comparison somewhere else. On
+  a push or any other event the same holds for the commit the run is for,
+  `github.sha`. It reads the checkout through a git directory of its own,
+  because flags and settings a step writes into `.git` can hide a change from
+  `git status`.
 - Steps before the check that run the pull request's own code, such as
   `pip install -e .` or a setup script, can still change what the tests see,
   in ignored files or outside the checkout. That is the same boundary as the

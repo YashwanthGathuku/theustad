@@ -564,7 +564,7 @@ def test_a_step_before_the_check_cannot_restore_what_the_pull_request_deleted(
     completed, outputs, _ = run_action(repo, tmp_path, **event)
 
     assert completed.returncode == 2
-    assert "app/invoice.py is deleted by the pull request" in completed.stderr
+    assert "app/invoice.py is deleted by the change" in completed.stderr
     assert outputs == {}
 
 
@@ -650,6 +650,55 @@ def test_the_merge_commit_github_reports_is_judged(repo, tmp_path):
     completed, outputs, _ = run_action(repo, tmp_path, **event)
 
     assert outputs["verdict"] == "VERIFIED", completed.stdout + completed.stderr
+
+
+@posix_only
+def test_a_push_is_judged_by_the_commit_it_was_raised_for(repo, tmp_path):
+    honest_fix(repo)
+    commit_all(repo, "fix")
+    push = {"THEUSTAD_EVENT_SHA": git(repo, "rev-parse", "HEAD")}
+
+    completed, outputs, _ = run_action(repo, tmp_path, **push)
+    assert outputs["verdict"] == "VERIFIED", completed.stdout + completed.stderr
+
+    git(repo, "commit", "-q", "--allow-empty", "-m", "a step commits on top")
+    (tmp_path / "again").mkdir()
+    completed, outputs, _ = run_action(repo, tmp_path / "again", **push)
+    assert completed.returncode == 2
+    assert "the commit this run is for" in completed.stderr
+    assert outputs == {}
+
+
+@posix_only
+@pytest.mark.parametrize("step", ["rewrite", "add"])
+def test_a_step_before_a_push_check_cannot_change_what_it_judges(repo, tmp_path, step):
+    # The pushed commit carries no fix; a step supplies one on disk.
+    head = git(repo, "rev-parse", "HEAD")
+    if step == "rewrite":
+        honest_fix(repo)
+        expected = f"tracked files differ from commit {head}, first app/"
+    else:
+        (repo / "app" / "supplied.py").write_text("VALUE = 1\n", encoding="utf-8")
+        expected = "untracked files are in the checkout, first app/supplied.py"
+
+    completed, outputs, _ = run_action(repo, tmp_path, THEUSTAD_EVENT_SHA=head)
+
+    assert completed.returncode == 2
+    assert expected in completed.stderr
+    assert outputs == {}
+
+
+@posix_only
+def test_a_push_check_names_a_base_it_cannot_find(repo, tmp_path):
+    head = git(repo, "rev-parse", "HEAD")
+
+    completed, outputs, _ = run_action(
+        repo, tmp_path, THEUSTAD_EVENT_SHA=head, THEUSTAD_BASE="no-such-branch"
+    )
+
+    assert completed.returncode == 2
+    assert "the base no-such-branch is not a commit in the checkout" in completed.stderr
+    assert outputs == {}
 
 
 @posix_only
