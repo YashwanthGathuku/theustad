@@ -53,6 +53,10 @@ CONFIG_NAME = ".theustad.json"
 # A change that edits the workflow running this check, or the policy file it
 # reads, is editing its own judge.
 CI_PATTERNS = (*DEFAULT_PATTERNS, ".github/workflows/**", CONFIG_NAME)
+# Protected so the change cannot point the check somewhere else, but neither
+# holds an acceptance test: a policy that matches nothing besides these
+# protects no test at all.
+_CHECK_INPUTS = _normalize_patterns((CONFIG_NAME, ".github/workflows/**"))
 DEFAULT_TIMEOUT = 1800.0
 _CONFIG_TYPES: dict[str, tuple[type, ...]] = {
     "verifier": (str,),
@@ -434,6 +438,11 @@ def run_check(
     protected_files = sum(
         1 for entry in manifest.entries.values() if entry.file_type == "file"
     )
+    acceptance_files = sum(
+        1
+        for path, entry in manifest.entries.items()
+        if entry.file_type == "file" and not _matches(path, _CHECK_INPUTS)
+    )
     warnings: list[str] = []
 
     audit = AuditChain(state / "logs")
@@ -456,11 +465,12 @@ def run_check(
     output(f"POLICY {policy.source}")
     output(f"VERIFIER {' '.join(policy.verifier_argv)}")
     output(f"PROTECTED {protected_files} files from {pristine[:12]}")
-    if protected_files == 0:
+    if acceptance_files == 0:
         warning = (
-            "THEUSTAD_WARNING NO_PROTECTED_INPUTS: no file at the base commit "
-            "matches the protected patterns, so nothing stops the change from "
-            "rewriting the tests. Set protect in .theustad.json."
+            "THEUSTAD_WARNING NO_PROTECTED_INPUTS: no test or verifier "
+            "configuration at the base commit matches the protected patterns, "
+            "so nothing stops the change from rewriting the tests. Set protect "
+            "in .theustad.json."
         )
         warnings.append(warning)
         output(warning)

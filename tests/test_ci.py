@@ -243,6 +243,26 @@ def test_tampering_while_the_tests_run_is_caught(repo, tmp_path):
     assert result.verifier_time_tampering.modified == ["tests/test_parser.py"]
 
 
+@pytest.mark.parametrize("protect", [[], ["spec/**"], [".github/workflows/**"]])
+def test_a_policy_that_protects_no_test_says_so(repo, tmp_path, protect):
+    # .theustad.json is always protected, and the workflows by default; a
+    # policy matching nothing else still leaves every test open to rewriting.
+    git(repo, "switch", "-q", "main")
+    (repo / ".theustad.json").write_text(json.dumps({"protect": protect}), encoding="utf-8")
+    commit_all(repo, "policy")
+    git(repo, "switch", "-q", "-C", "agent")
+
+    result, lines = run(repo, tmp_path, census_enabled=False)
+
+    assert any("NO_PROTECTED_INPUTS" in line for line in lines)
+
+
+def test_a_policy_that_protects_tests_raises_no_warning(repo, tmp_path):
+    result, lines = run(repo, tmp_path, census_enabled=False)
+
+    assert not any("NO_PROTECTED_INPUTS" in line for line in lines)
+
+
 def test_policy_comes_from_the_base_commit(repo, tmp_path):
     git(repo, "switch", "-q", "main")
     (repo / ".theustad.json").write_text(
