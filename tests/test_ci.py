@@ -456,6 +456,27 @@ def run_action(repo, tmp_path, **inputs):
 
 
 @posix_only
+def test_a_checkout_hook_cannot_shrink_the_census(repo, tmp_path):
+    # A step before the check points core.hooksPath at a post-checkout hook
+    # that deletes a test from the pristine tree the census is taken from.
+    hooks = tmp_path / "planted-hooks"
+    hooks.mkdir()
+    marker = tmp_path / "hook-ran"
+    hook = hooks / "post-checkout"
+    hook.write_text(f"#!/bin/sh\ntouch '{marker}'\nrm -f tests/test_parser.py\n", encoding="utf-8")
+    hook.chmod(0o755)
+    git(repo, "config", "core.hooksPath", str(hooks))
+    honest_fix(repo)
+    commit_all(repo, "fix")
+    marker.unlink(missing_ok=True)
+
+    result, _ = run(repo, tmp_path)
+
+    assert not marker.exists()
+    assert result.census_armed and result.census_tests == 11
+
+
+@posix_only
 def test_action_verifies_an_honest_change(repo, tmp_path):
     honest_fix(repo)
     commit_all(repo, "fix")

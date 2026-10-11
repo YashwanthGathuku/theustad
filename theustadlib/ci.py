@@ -354,7 +354,22 @@ def _census_baseline(
 
     worktree = state_dir / f"pristine-{uuid.uuid4().hex[:12]}"
     report = state_dir / "census-baseline.xml"
-    git_output(repo, "worktree", "add", "--detach", "--quiet", str(worktree), pristine)
+    # Checking out runs the repository's post-checkout hook, and a step before
+    # this one can point core.hooksPath anywhere: a hook that deletes a test
+    # from the pristine tree shrinks the census before it is taken. None run.
+    no_hooks = state_dir / "no-hooks"
+    no_hooks.mkdir(exist_ok=True)
+    git_output(
+        repo,
+        "-c",
+        f"core.hooksPath={no_hooks}",
+        "worktree",
+        "add",
+        "--detach",
+        "--quiet",
+        str(worktree),
+        pristine,
+    )
     try:
         census.clear_report(report)
         probe = verifier_runner(
