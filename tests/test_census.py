@@ -200,6 +200,35 @@ def test_a_symlinked_report_is_refused(tmp_path):
     assert census.parse_report(link) is None
 
 
+def _same_named(path, *cases):
+    body = "".join(
+        f'<testcase classname="tests.a.b.test_x" name="test_same">{child}</testcase>'
+        for child in cases
+    )
+    path.write_text(f"<testsuite>{body}</testsuite>", encoding="utf-8")
+    return census.parse_report(path)
+
+
+@pytest.mark.parametrize(
+    ("cases", "reason"),
+    [
+        (("", ""), None),
+        (("<skipped/>", ""), census.CENSUS_SKIP),
+        (("", "<skipped/>"), census.CENSUS_SKIP),
+        (("",), census.CENSUS_SHRINK),
+    ],
+)
+def test_two_tests_reported_under_one_identifier_both_count(tmp_path, cases, reason):
+    # pytest --import-mode=importlib reports tests/a.b/test_x.py::test_same
+    # and tests/a/b/test_x.py::test_same with the same classname and name.
+    baseline = _same_named(tmp_path / "baseline.xml", "", "")
+
+    result = census.compare(baseline, _same_named(tmp_path / "stop.xml", *cases), 0)
+
+    assert len(baseline) == 2
+    assert result.reason == reason
+
+
 BASELINE = {"pkg::a": "failure", "pkg::b": "passed"}
 
 

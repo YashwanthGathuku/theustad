@@ -239,7 +239,7 @@ def parse_report(path: str | Path) -> dict[str, str] | None:
     except (ElementTree.ParseError, OSError):
         return None
 
-    outcomes: dict[str, str] = {}
+    grouped: dict[str, list[str]] = {}
     suites = [root] if root.tag == "testsuite" else root.iter("testsuite")
     for suite in suites:
         for case in suite.iter("testcase"):
@@ -253,7 +253,32 @@ def parse_report(path: str | Path) -> dict[str, str] | None:
                 if child.tag in ("failure", "error", "skipped"):
                     outcome = child.tag
                     break
-            outcomes[identifier] = outcome
+            grouped.setdefault(identifier, []).append(outcome)
+    return _numbered(grouped)
+
+
+# Outcomes in the order duplicates are numbered: the ones that ran first.
+_OUTCOME_RANK = {"passed": 0, "failure": 1, "error": 2, "skipped": 3}
+
+
+def _numbered(grouped: dict[str, list[str]]) -> dict[str, str]:
+    """One entry per testcase, even when two report the same identifier.
+
+    pytest can give two tests one identifier -- under ``--import-mode=importlib``
+    ``tests/a.b/test_x.py`` and ``tests/a/b/test_x.py`` both report
+    ``tests.a.b.test_x`` -- and collapsing them would let one stand in for
+    both.  Each duplicate after the first gets ``" #2"``, ``" #3"`` and so on,
+    a suffix no Python test name can end in.  They are numbered by outcome,
+    not by position, so the same set of outcomes always maps to the same
+    entries whatever order the tests ran in, and a duplicate that stops
+    running or starts skipping is missed or skipped like any other test.
+    """
+    outcomes: dict[str, str] = {}
+    for identifier, found in grouped.items():
+        ordered = sorted(found, key=lambda outcome: _OUTCOME_RANK.get(outcome, 4))
+        for index, outcome in enumerate(ordered, start=1):
+            key = identifier if index == 1 else f"{identifier} #{index}"
+            outcomes[key] = outcome
     return outcomes
 
 
