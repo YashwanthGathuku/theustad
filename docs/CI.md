@@ -146,7 +146,8 @@ that runs TheUstad is still part of the pull request, though, and on
   a push or any other event the same holds for the commit the run is for,
   `github.sha`. It reads the checkout through a git directory of its own,
   because flags and settings a step writes into `.git` can hide a change from
-  `git status`.
+  `git status`, and it drops the `GIT_*` variables a step can export to the
+  rest of the job, which can do the same.
 - Steps before the check that run the pull request's own code, such as
   `pip install -e .` or a setup script, can still change what the tests see,
   in ignored files or outside the checkout. That is the same boundary as the

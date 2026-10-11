@@ -6,6 +6,16 @@
 # cannot become shell syntax here.
 set -euo pipefail
 
+# Git takes configuration, repository locations and pathspec rules from GIT_*
+# variables, and any step before this one can set those for the rest of the
+# job through $GITHUB_ENV: GIT_CONFIG_COUNT can turn core.fileMode off so a
+# changed mode goes unseen, GIT_DIR can point every command at another
+# repository. None of TheUstad's git commands, here or in the check itself,
+# take them from there.
+while IFS= read -r name; do
+  unset "$name"
+done < <(compgen -e | grep '^GIT_' || true)
+
 # A path is the pull request's to name, so it is escaped before it reaches a
 # workflow command: a newline in it would otherwise start a command of its own.
 escape() {

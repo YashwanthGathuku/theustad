@@ -600,6 +600,27 @@ def test_index_flags_cannot_hide_a_rewritten_file(repo, tmp_path, flag):
 
 
 @posix_only
+@pytest.mark.parametrize(
+    "injected",
+    [
+        {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.filemode", "GIT_CONFIG_VALUE_0": "false"},
+        {"GIT_CONFIG_PARAMETERS": "'core.filemode'='false'"},
+    ],
+)
+def test_configuration_a_step_exports_cannot_hide_a_changed_mode(repo, tmp_path, injected):
+    # A step writes these to $GITHUB_ENV, then makes a tracked file executable.
+    event = _pull_request_event(repo)
+    target = repo / "app" / "parser.py"
+    target.chmod(target.stat().st_mode | 0o111)
+
+    completed, outputs, _ = run_action(repo, tmp_path, **event, **injected)
+
+    assert completed.returncode == 2
+    assert "tracked files differ from the pull request's commit, first app/parser.py" in completed.stderr
+    assert outputs == {}
+
+
+@posix_only
 def test_the_repository_exclude_file_cannot_hide_an_added_file(repo, tmp_path):
     event = _pull_request_event(repo)
     with (repo / ".git" / "info" / "exclude").open("a", encoding="utf-8") as exclude:
