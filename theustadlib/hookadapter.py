@@ -810,7 +810,6 @@ def main(argv: Sequence[str]) -> int:
                 return ALLOW
             vendor = "claude"
         response = dispatch(vendor, payload, expected_event=expected_event)
-        _fault_streak(vendor, payload, fault=False)
         # Emitting is inside the guard too: a BrokenPipeError or an
         # unserializable payload here would otherwise escape as exit 1.
         if response.stdout is not None:
@@ -822,6 +821,12 @@ def main(argv: Sequence[str]) -> int:
             stderr = "TheUstad: blocked; see the audit chain for this session."
         if stderr:
             print(stderr, file=sys.stderr)
+        # Only a response that reached the host ends the streak; one that
+        # failed to emit is a fault like any other.
+        try:
+            _fault_streak(vendor, payload, fault=False)
+        except Exception:
+            pass
         return response.exit_code
     except Exception as error:
         # Exit 1 is non-blocking in Claude Code, so an unhandled exception here

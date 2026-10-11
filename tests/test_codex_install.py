@@ -63,7 +63,9 @@ def test_install_writes_guarded_user_hooks_and_leaves_claude_alone(codex_home, c
         assert handler["timeout"] == claudesettings.HANDLER_TIMEOUT
         assert claudesettings.runnable(handler, vendor="codex")
     assert not claudesettings.user_settings_path().exists()
-    assert "CODEX_TRUST untrusted" in out and "/hooks" in out
+    # Python 3.10 cannot read config.toml, so it can only say trust is unknown.
+    trust = "untrusted" if HAS_TOMLLIB else "unknown"
+    assert f"CODEX_TRUST {trust}" in out and "/hooks" in out
 
 
 def test_install_keeps_other_hooks_and_is_idempotent(codex_home):
@@ -185,6 +187,24 @@ def test_a_recurring_fault_cannot_loop_codex_for_ever(monkeypatch, capsys):
     assert "UNVERIFIED" in capsys.readouterr().err
     # A new turn gets the full bound again.
     assert _faulted_stop(monkeypatch, "codex", active=False) == hookadapter.BLOCK
+
+
+def test_a_response_that_cannot_be_emitted_counts_toward_the_bound(monkeypatch, capsys):
+    # Dispatch succeeds but its output never reaches Codex, on every Stop.
+    def unprintable(*_args, **_kwargs):
+        return hookadapter.HookResponse(hookadapter.ALLOW, stdout={"bad": object()})
+
+    def stop(active):
+        monkeypatch.setattr(hookadapter, "dispatch", unprintable)
+        payload = {"hook_event_name": "Stop", "session_id": "loop-2", "stop_hook_active": active}
+        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+        return hookadapter.main(["codex", "Stop"])
+
+    results = [stop(False)] + [stop(True) for _ in range(8)]
+
+    assert results[:8] == [hookadapter.BLOCK] * 8
+    assert results[8] == hookadapter.ALLOW
+    assert "UNVERIFIED" in capsys.readouterr().err
 
 
 def test_claude_faults_keep_blocking_because_claude_code_bounds_them(monkeypatch):
